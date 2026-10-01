@@ -35,6 +35,7 @@ public enum ErrorCode {
     ROW_CHANGE_FAILED(HttpStatus.CONFLICT, "ROW_CHANGE_FAILED", "데이터베이스가 변경을 거부했습니다"),
     VALUE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "VALUE_TOO_LARGE", "값이 너무 큽니다"),
     QUERY_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "QUERY_TIMEOUT", "실행 제한 시간을 넘어 취소했습니다"),
+    QUERY_FAILED(HttpStatus.CONFLICT, "QUERY_FAILED", "데이터베이스가 조회를 거부했습니다"),
     MULTIPLE_STATEMENTS(HttpStatus.BAD_REQUEST, "MULTIPLE_STATEMENTS", "한 번에 한 문장만 실행할 수 있습니다"),
     UNSUPPORTED_STATEMENT(HttpStatus.BAD_REQUEST, "UNSUPPORTED_STATEMENT", "지원하지 않는 문장입니다"),
     CONFIRMATION_REQUIRED(HttpStatus.CONFLICT, "CONFIRMATION_REQUIRED", "실행 전에 확인이 필요합니다"),
