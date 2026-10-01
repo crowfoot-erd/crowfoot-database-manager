@@ -7,7 +7,7 @@ The database manager service of the Crowfoot ERD editor: browse and edit data an
 ## 구조
 
 - Java 21 · Spring Boot. **자기 DB가 없다.** 권한 판정, 접속 정보, 감사 기록은 core(`crowfoot-core-api`)의 내부 API로 처리한다.
-- 외부 경로는 `/api/v1/database/**`다. Gateway가 토큰을 검증하고 `X-USER-ID`를 붙여 넘긴다. 구현 경로는 `/database/**`다.
+- 외부 경로는 `/api/v1/database-manager/**`다. Gateway가 토큰을 검증하고 `X-USER-ID`를 붙여 넘긴다. 구현 경로는 `/database-manager/**`다.
 - 요청마다 대상 데이터베이스(MySQL·PostgreSQL)에 접속하고, 끝나면 닫는다. 조회 결과를 저장하지 않는다.
 
 스펙은 docs 리포의 `09-database-manager/00-data-browser.md`가 원천이다.

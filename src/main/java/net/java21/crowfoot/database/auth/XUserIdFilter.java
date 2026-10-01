@@ -17,7 +17,7 @@ import java.io.IOException;
 /**
  * X-USER-ID 검증 필터 (09-database-manager/00-data-browser.md Section 1.5 — core XUserIdFilter와 같은 방식).
  *
- * <p>구현 경로 {@code /database/**}는 Gateway가 주입한 X-USER-ID(sub 문자열)을 요구한다 —
+ * <p>구현 경로 {@code /database-manager/**}는 Gateway가 주입한 X-USER-ID(sub 문자열)을 요구한다 —
  * 헤더 없는 요청은 Gateway를 거치지 않은 요청이므로 401로 거부한다(공통 실패 포맷).
  * 이 서버에는 공개 경로가 없다. 제외는 {@code /actuator/**}(헬스체크)와 CORS preflight뿐이다.
  */
@@ -31,7 +31,7 @@ public class XUserIdFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/database")
+        return !request.getRequestURI().startsWith("/database-manager")
                 || "OPTIONS".equalsIgnoreCase(request.getMethod());
     }
 

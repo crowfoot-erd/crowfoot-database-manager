@@ -28,7 +28,7 @@ class XUserIdFilterTest {
     @Test
     @DisplayName("헤더가 있으면 체인 안에서 사용자 컨텍스트가 보이고, 끝나면 지운다")
     void setsAndClearsCurrentUser() throws Exception {
-        MockHttpServletRequest request = post("/database/workspaces/34/connections/302/objects");
+        MockHttpServletRequest request = post("/database-manager/workspaces/34/connections/302/objects");
         request.addHeader(XUserIdFilter.USER_ID_HEADER, "1001");
         AtomicReference<CurrentUser> seen = new AtomicReference<>();
         FilterChain chain = (req, res) -> seen.set(CurrentUserHolder.get());
@@ -43,7 +43,7 @@ class XUserIdFilterTest {
     @DisplayName("헤더가 없거나 숫자가 아니면 401 AUTH_TOKEN_INVALID — 체인을 타지 않는다")
     void rejectsMissingOrMalformedHeader() throws Exception {
         for (String header : new String[] {null, " ", "abc"}) {
-            MockHttpServletRequest request = post("/database/workspaces/34/connections/302/objects");
+            MockHttpServletRequest request = post("/database-manager/workspaces/34/connections/302/objects");
             if (header != null) request.addHeader(XUserIdFilter.USER_ID_HEADER, header);
             MockHttpServletResponse response = new MockHttpServletResponse();
             FilterChain chain = (req, res) -> {
