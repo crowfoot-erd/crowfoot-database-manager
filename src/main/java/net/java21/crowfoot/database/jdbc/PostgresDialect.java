@@ -86,6 +86,16 @@ public class PostgresDialect implements Dialect {
     }
 
     @Override
+    public String nullSafeEquals(String column) {
+        return column + " IS NOT DISTINCT FROM ?";
+    }
+
+    @Override
+    public String insertDefaults(String qualifiedTable) {
+        return "INSERT INTO " + qualifiedTable + " DEFAULT VALUES";
+    }
+
+    @Override
     public List<CatalogObject> listObjects(Connection connection, String schema) throws SQLException {
         // r=테이블, p=파티션 테이블, v=뷰, m=머티리얼라이즈드 뷰. reltuples는 통계가 없으면 -1이다
         String sql = """

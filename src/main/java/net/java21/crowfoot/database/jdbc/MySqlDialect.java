@@ -60,6 +60,16 @@ public class MySqlDialect implements Dialect {
     }
 
     @Override
+    public String nullSafeEquals(String column) {
+        return column + " <=> ?";
+    }
+
+    @Override
+    public String insertDefaults(String qualifiedTable) {
+        return "INSERT INTO " + qualifiedTable + " () VALUES ()";
+    }
+
+    @Override
     public List<CatalogObject> listObjects(Connection connection, String schema) throws SQLException {
         String sql = """
                 SELECT t.TABLE_NAME, t.TABLE_TYPE, t.TABLE_ROWS, t.TABLE_COMMENT,

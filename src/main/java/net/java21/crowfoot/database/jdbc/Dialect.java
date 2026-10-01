@@ -40,6 +40,12 @@ public interface Dialect {
     /** 문자열 비교(LIKE)를 위해 식을 문자 타입으로 바꾼다 */
     String castToText(String expression);
 
+    /** NULL끼리도 같다고 보는 비교식 — 편집 전 값과 지금 값이 같은지 볼 때 쓴다(Section 3.5 충돌 검사) */
+    String nullSafeEquals(String column);
+
+    /** 모든 컬럼을 기본값으로 넣는 INSERT 문 */
+    String insertDefaults(String qualifiedTable);
+
     /** 테이블·뷰 목록 — 이름순. 추정 행 수와 코멘트를 함께 읽는다(Section 3.1) */
     List<CatalogObject> listObjects(Connection connection, String schema) throws SQLException;
 

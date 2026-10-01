@@ -5,6 +5,7 @@ import net.java21.crowfoot.database.common.ErrorResponse;
 import net.java21.crowfoot.database.common.error.BusinessException;
 import net.java21.crowfoot.database.common.error.ErrorCode;
 import net.java21.crowfoot.database.common.i18n.ServerMessages;
+import net.java21.crowfoot.database.edit.ChangeFailedException;
 import net.java21.crowfoot.database.query.ConfirmationRequiredException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +37,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(code.getStatus())
                 .body(ErrorResponse.of(code.getCode(), codeMessage(code),
                         List.of(new ErrorResponse.FieldError("kind", ex.getKind().name(), null))));
+    }
+
+    /** 실패한 변경 — 몇 번째 변경인지와 데이터베이스 문구를 errors에 싣는다(00-data-browser.md Section 3.5) */
+    @ExceptionHandler(ChangeFailedException.class)
+    public ResponseEntity<ErrorResponse> handleChangeFailed(ChangeFailedException ex) {
+        ErrorCode code = ex.getErrorCode();
+        return ResponseEntity.status(code.getStatus())
+                .body(ErrorResponse.of(code.getCode(), codeMessage(code),
+                        List.of(new ErrorResponse.FieldError("changes[" + ex.getIndex() + "]", code.getCode(), ex.getDetail()))));
     }
 
     @ExceptionHandler(BusinessException.class)
