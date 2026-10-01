@@ -1,0 +1,24 @@
+# 로컬 개발 — core는 같은 머신의 8082.
+spring:
+  config:
+    import: "optional:file:.env-local[.properties]"   # 로컬 시크릿(gitignore) — 존재하지 않으면 무시
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            # FeignClient("crowfoot-core-api")가 여기를 본다 (api-design.md Section 11)
+            crowfoot-core-api[0]:
+              uri: http://localhost:8082
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 1000
+            read-timeout: 2000       # 재시도 없음(기본 NEVER_RETRY)
+logging:
+  level:
+    net.java21.crowfoot.database: DEBUG
+
+server:
+  port: 8084   # 로컬 개발 — 프로세스별 포트 분리(운영은 전부 8080)

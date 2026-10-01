@@ -1,0 +1,25 @@
+# 운영 — 기점은 k8s Service DNS. 시크릿이 생기면 전부 환경변수(Secret 주입)로만 둔다.
+spring:
+  config:
+    import: "optional:file:.env-prod[.properties]"    # prod 프로필을 로컬에서 재현할 때만 사용 — k8s 운영은 파일 불필요
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            crowfoot-core-api[0]:
+              # k8s Service가 80으로 서빙(프록시)하므로 포트 불필요 — 컨테이너 실제 포트만 8080
+              uri: ${CROWFOOT_CORE_URI:http://crowfoot-core-api}
+    openfeign:
+      client:
+        config:
+          default:
+            connect-timeout: 1000
+            read-timeout: 2000
+logging:
+  level:
+    net.java21.crowfoot.database: INFO
+
+server:
+  port: 8080   # 운영 — 모든 서버 8080
+  shutdown: graceful   # 무중단 롤아웃 — SIGTERM 후 처리 중 요청을 마무리하고 종료 (k8s RollingUpdate)

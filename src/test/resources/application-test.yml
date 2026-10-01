@@ -1,0 +1,9 @@
+# 테스트 — core는 목으로 대체한다(실제 접속 없음).
+spring:
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            crowfoot-core-api[0]:
+              uri: http://localhost:1

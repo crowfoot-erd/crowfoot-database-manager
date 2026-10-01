@@ -1,0 +1,38 @@
+# 공통 설정 — 프로필 무관하게 같은 값만 둔다. 프로필별 값은 application-local.yml / application-prod.yml
+spring:
+  application:
+    name: crowfoot-database-manager
+  # resultMessage 번들 (api-design.md §5.7) — ko/en/ja/zh, 미지원 로케일·키는 한국어 폴백
+  messages:
+    basename: i18n/messages,i18n/validation/ValidationMessages
+    encoding: UTF-8
+    fallback-to-system-locale: false
+  # 기본 프로필 — 지정 없이 기동하면 local. 운영은 SPRING_PROFILES_ACTIVE=prod (k8s)
+  profiles:
+    default: local
+  # 이 서버는 자기 DB가 없다(DB리스 — 09-database-manager/00-data-browser.md Section 1.5).
+  # JDBC 드라이버는 커넥션이 가리키는 외부 DB에 요청마다 접속하는 데만 쓴다 — DataSource를 구성하지 않는다.
+  # 지금 보관하는 시크릿은 없다. 추가되는 값은 반드시 .env-local/.env-prod + ${ENV_VAR} 참조로만 둔다.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+crowfoot:
+  database:
+    # 한도 (09-database-manager/00-data-browser.md Section 2.3)
+    limits:
+      connect-timeout: 5s
+      statement-timeout: 8s          # gateway response-timeout(10s)보다 짧아야 한다
+      page-size-default: 100
+      page-size-max: 500
+      console-rows-default: 500
+      console-rows-max: 1000
+      cell-text-length: 2000
+      value-length-max: 1000000
+      response-bytes-max: 5242880
+      filters-max: 10
+      sorts-max: 3
+      changes-max: 100
+      sql-length-max: 100000
+      concurrent-per-user: 2
