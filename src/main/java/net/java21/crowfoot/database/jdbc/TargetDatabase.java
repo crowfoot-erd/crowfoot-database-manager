@@ -64,6 +64,21 @@ public class TargetDatabase {
         }
     }
 
+    /**
+     * 쓰기 접속 — 자동 커밋. 콘솔의 쓰기·구조 문장과 행 편집에 쓴다. 요청 사이에 이어지는 트랜잭션은 없다.
+     */
+    public Connection openWritable(ConnectionAccess access) {
+        Dialect dialect = dialectOf(access);
+        Connection connection = connect(dialect, access);
+        try {
+            dialect.prepareSession(connection, access);
+            return connection;
+        } catch (SQLException e) {
+            closeQuietly(connection);
+            throw unreachable(e);
+        }
+    }
+
     /** 문장 실행 제한 시간을 건 Statement 설정 — 넘으면 드라이버가 문장을 취소한다(Section 2.3) */
     public void applyStatementTimeout(Statement statement) throws SQLException {
         statement.setQueryTimeout((int) Math.max(1, limits.statementTimeout().toSeconds()));

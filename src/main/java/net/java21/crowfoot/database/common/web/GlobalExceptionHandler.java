@@ -5,6 +5,7 @@ import net.java21.crowfoot.database.common.ErrorResponse;
 import net.java21.crowfoot.database.common.error.BusinessException;
 import net.java21.crowfoot.database.common.error.ErrorCode;
 import net.java21.crowfoot.database.common.i18n.ServerMessages;
+import net.java21.crowfoot.database.query.ConfirmationRequiredException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -27,6 +28,15 @@ import java.util.List;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /** 확인이 필요한 문장 — 문장 종류를 errors에 실어 화면이 확인 다이얼로그에 쓰게 한다(00-data-browser.md Section 3.6) */
+    @ExceptionHandler(ConfirmationRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleConfirmationRequired(ConfirmationRequiredException ex) {
+        ErrorCode code = ex.getErrorCode();
+        return ResponseEntity.status(code.getStatus())
+                .body(ErrorResponse.of(code.getCode(), codeMessage(code),
+                        List.of(new ErrorResponse.FieldError("kind", ex.getKind().name(), null))));
+    }
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorResponse> handleBusiness(BusinessException ex) {
