@@ -5,6 +5,7 @@ package net.java21.crowfoot.database.client.dto;
  *
  * @param userId      요청한 사용자 — Gateway가 붙인 X-USER-ID 값
  * @param workspaceId 요청 경로의 워크스페이스
+ * @param mcpWrite    MCP로 온 쓰기 요청이면 true
  */
-public record ConnectionAccessRequest(String userId, String workspaceId) {
+public record ConnectionAccessRequest(String userId, String workspaceId, Boolean mcpWrite) {
 }

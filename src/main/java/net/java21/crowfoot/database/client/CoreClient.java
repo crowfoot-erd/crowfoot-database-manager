@@ -18,6 +18,14 @@ public interface CoreClient {
      */
     ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId);
 
+    /**
+     * 접근 확인 — MCP로 온 쓰기 요청이면 mcpWrite를 켠다. core가 MCP 반영을 허용한 커넥션인지까지 본다
+     * (08-core/15-internal-api.md Section 2.1).
+     */
+    default ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId, boolean mcpWrite) {
+        return requireAccess(userId, workspaceId, connectionId);
+    }
+
     /** 감사 기록 — best-effort. 실패해도 본류의 응답을 바꾸지 않는다 */
     void recordAuditLog(long actorId, String action, String detail);
 }

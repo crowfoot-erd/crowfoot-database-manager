@@ -11,6 +11,8 @@ import net.java21.crowfoot.database.edit.dto.ChangesRequest;
 import net.java21.crowfoot.database.edit.dto.ChangesRequest.Change;
 import net.java21.crowfoot.database.edit.dto.ChangesRequest.Op;
 import net.java21.crowfoot.database.edit.dto.ChangesResponse;
+import net.java21.crowfoot.database.edit.dto.SampleDataRequest;
+import net.java21.crowfoot.database.edit.dto.SampleDataResponse;
 import net.java21.crowfoot.database.jdbc.CatalogReader;
 import net.java21.crowfoot.database.jdbc.MySqlDialect;
 import net.java21.crowfoot.database.jdbc.PostgresDialect;
@@ -332,6 +334,132 @@ abstract class EditContractTest {
         apply("notes", update(map("id", "1"), map("body", edited), map("body", original)));
 
         assertThat(scalar("SELECT CHAR_LENGTH(body) FROM notes WHERE id = 1")).isEqualTo(Integer.toString(edited.length()));
+    }
+
+    /* ---------- 샘플 데이터 넣기 (3.8) ---------- */
+
+    static SampleDataRequest.Table table(String name, Map<String, Object>... rows) {
+        return new SampleDataRequest.Table(name, List.of(rows));
+    }
+
+    SampleDataResponse sample(boolean dryRun, SampleDataRequest.Table... tables) {
+        return service.sampleData(USER, WORKSPACE, CONNECTION, new SampleDataRequest(dryRun, List.of(tables)), false, null);
+    }
+
+    @Test
+    @DisplayName("샘플 데이터 — 여러 테이블에 적힌 순서대로 넣는다. 숫자와 불리언 값을 받고, 기본 키 없는 테이블에도 넣는다")
+    @SuppressWarnings("unchecked")
+    void sampleDataInserts() throws Exception {
+        SampleDataResponse response = sample(false,
+                table("notes", map("id", 10, "title", "샘플 1", "done", true, "qty", 3), map("id", 11, "title", "샘플 2", "body", null)),
+                table("tags", map("note_id", 10, "tag", "sample", "weight", "7")),
+                table("note_logs", map("message", "샘플 로그")));
+
+        assertThat(response.dryRun()).isFalse();
+        assertThat(response.inserted()).isEqualTo(4);
+        assertThat(response.tables()).extracting(SampleDataResponse.TableCount::name).containsExactly("notes", "tags", "note_logs");
+        assertThat(response.tables()).extracting(SampleDataResponse.TableCount::inserted).containsExactly(2, 1, 1);
+        assertThat(row("SELECT title, qty FROM notes WHERE id = 10")).containsExactly("샘플 1", "3");
+        assertThat(scalar("SELECT COUNT(*) FROM notes WHERE id = 10 AND done = " + trueLiteral())).isEqualTo("1");
+        assertThat(scalar("SELECT weight FROM tags WHERE note_id = 10")).isEqualTo("7");
+        assertThat(scalar("SELECT COUNT(*) FROM note_logs")).isEqualTo("1");
+        // 감사 기록 — 테이블 이름과 행 수만 남긴다. 값은 남기지 않는다
+        assertThat(audits).hasSize(1);
+        assertThat(audits.get(0)[1]).isEqualTo("CONNECTION_SAMPLE_DATA_INSERTED");
+        assertThat(audits.get(0)[2]).contains("\"inserted\":4").contains("\"ok\":true").doesNotContain("샘플 1");
+    }
+
+    @Test
+    @DisplayName("샘플 데이터 — dryRun은 넣어 본 뒤 전부 되돌린다. 남는 행이 없고 감사 기록도 남기지 않는다")
+    @SuppressWarnings("unchecked")
+    void sampleDataDryRunLeavesNothing() throws Exception {
+        SampleDataResponse response = sample(true,
+                table("notes", map("id", 10, "title", "샘플 1")),
+                table("tags", map("note_id", 10, "tag", "sample")));
+
+        assertThat(response.dryRun()).isTrue();
+        assertThat(response.inserted()).isEqualTo(2);
+        assertThat(scalar("SELECT COUNT(*) FROM notes")).isEqualTo("2");
+        assertThat(scalar("SELECT COUNT(*) FROM tags")).isEqualTo("2");
+        assertThat(audits).isEmpty();
+    }
+
+    @Test
+    @DisplayName("샘플 데이터 — 하나라도 실패하면 전부 되돌리고 어느 행인지 알린다")
+    @SuppressWarnings("unchecked")
+    void sampleDataRollsBackOnFailure() throws Exception {
+        assertThatThrownBy(() -> sample(false,
+                table("notes", map("id", 10, "title", "샘플 1")),
+                // 기본 키가 겹친다(1, 'work'는 이미 있다)
+                table("tags", map("note_id", 10, "tag", "ok"), map("note_id", 1, "tag", "work"))))
+                .isInstanceOfSatisfying(ChangeFailedException.class, ex -> {
+                    assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.ROW_CHANGE_FAILED);
+                    assertThat(ex.getField()).isEqualTo("tables[1].rows[1]");
+                });
+        assertThat(scalar("SELECT COUNT(*) FROM notes")).isEqualTo("2");
+        assertThat(scalar("SELECT COUNT(*) FROM tags")).isEqualTo("2");
+        assertThat(audits).hasSize(1);
+        assertThat(audits.get(0)[2]).contains("\"ok\":false");
+    }
+
+    @Test
+    @DisplayName("샘플 데이터 — 없는 테이블, 없는 컬럼, 뷰는 거부한다")
+    @SuppressWarnings("unchecked")
+    void sampleDataRejectsUnknownTargets() {
+        assertError(() -> sample(true, table("no_such_table", map("a", 1))), ErrorCode.OBJECT_NOT_FOUND);
+        assertError(() -> sample(true, table("done_notes", map("id", 1, "title", "x"))), ErrorCode.OBJECT_NOT_EDITABLE);
+        assertThatThrownBy(() -> sample(true, table("notes", map("title", "x", "no_such_column", 1))))
+                .isInstanceOfSatisfying(ChangeFailedException.class, ex -> {
+                    assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+                    assertThat(ex.getField()).isEqualTo("tables[0].rows[0]");
+                });
+    }
+
+    @Test
+    @DisplayName("샘플 데이터 — 한 번에 테이블 20개, 행 1,000개까지다")
+    @SuppressWarnings("unchecked")
+    void sampleDataLimits() {
+        Map<String, Object>[] many = new Map[1001];
+        java.util.Arrays.fill(many, map("message", "x"));
+        assertError(() -> sample(true, table("note_logs", many)), ErrorCode.INVALID_REQUEST);
+        SampleDataRequest.Table[] tables = new SampleDataRequest.Table[21];
+        java.util.Arrays.fill(tables, table("note_logs", map("message", "x")));
+        assertError(() -> sample(true, tables), ErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
+    @DisplayName("샘플 데이터 — MCP로 온 요청이면 접근 확인에 mcpWrite를 켠다")
+    @SuppressWarnings("unchecked")
+    void sampleDataAsksMcpWriteForTokenRequests() {
+        List<Boolean> asked = new ArrayList<>();
+        CoreClient core = new CoreClient() {
+            @Override
+            public ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId) {
+                return access();
+            }
+
+            @Override
+            public ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId, boolean mcpWrite) {
+                asked.add(mcpWrite);
+                return access();
+            }
+
+            @Override
+            public void recordAuditLog(long actorId, String action, String detail) {
+                audits.add(new String[] {Long.toString(actorId), action, detail});
+            }
+        };
+        LimitsProperties limits = limits(1_000_000, 100);
+        EditService viaCore = new EditService(core, new TargetDatabase(List.of(new MySqlDialect(), new PostgresDialect()), limits),
+                new CatalogReader(), new UserConcurrencyLimiter(limits), limits, JsonMapper.builder().build());
+        SampleDataRequest request = new SampleDataRequest(false, List.of(table("note_logs", map("message", "x"))));
+
+        viaCore.sampleData(USER, WORKSPACE, CONNECTION, request, true, "12");
+        viaCore.sampleData(USER, WORKSPACE, CONNECTION, request, false, null);
+
+        assertThat(asked).containsExactly(true, false);
+        assertThat(audits.get(0)[2]).contains("\"tokenId\":\"12\"");
+        assertThat(audits.get(1)[2]).doesNotContain("tokenId");
     }
 
     static String longText() {

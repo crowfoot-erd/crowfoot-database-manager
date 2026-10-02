@@ -11,6 +11,8 @@ import net.java21.crowfoot.database.edit.dto.CellResponse;
 import net.java21.crowfoot.database.edit.dto.ChangesRequest;
 import net.java21.crowfoot.database.edit.dto.ChangesRequest.Change;
 import net.java21.crowfoot.database.edit.dto.ChangesResponse;
+import net.java21.crowfoot.database.edit.dto.SampleDataRequest;
+import net.java21.crowfoot.database.edit.dto.SampleDataResponse;
 import net.java21.crowfoot.database.jdbc.CatalogReader;
 import net.java21.crowfoot.database.jdbc.Dialect;
 import net.java21.crowfoot.database.jdbc.SqlErrors;
@@ -44,6 +46,10 @@ import java.util.stream.Collectors;
 public class EditService {
 
     static final String ACTION_ROWS_CHANGED = "CONNECTION_ROWS_CHANGED";
+    static final String ACTION_SAMPLE_DATA_INSERTED = "CONNECTION_SAMPLE_DATA_INSERTED";
+    /** 샘플 데이터 한 번의 한도 (00-data-browser.md Section 2.3) */
+    static final int SAMPLE_TABLES_MAX = 20;
+    static final int SAMPLE_ROWS_MAX = 1000;
 
     private final CoreClient coreClient;
     private final TargetDatabase targetDatabase;
@@ -69,6 +75,134 @@ public class EditService {
             coreClient.recordAuditLog(userId, ACTION_ROWS_CHANGED, auditDetail(access, objectName, 0, 0, 0, false));
             throw e;
         }
+    }
+
+    /**
+     * 샘플 데이터 넣기(3.8) — 여러 테이블에 행을 넣는다. 요청 하나가 트랜잭션 하나이고, dryRun이면 넣어 본 뒤 전부 되돌린다.
+     *
+     * @param viaToken 워크스페이스 액세스 토큰(MCP)으로 온 요청 — MCP 반영을 허용한 커넥션에만 통과한다(core가 판정)
+     */
+    public SampleDataResponse sampleData(long userId, String workspaceId, String connectionId, SampleDataRequest request,
+                                         boolean viaToken, String tokenId) {
+        int rows = request.tables().stream().mapToInt(table -> table.rows().size()).sum();
+        if (request.tables().size() > SAMPLE_TABLES_MAX) {
+            throw BusinessException.of(ErrorCode.INVALID_REQUEST, "detail.request.limit", "tables");
+        }
+        if (rows > SAMPLE_ROWS_MAX) {
+            throw BusinessException.of(ErrorCode.INVALID_REQUEST, "detail.request.limit", "rows");
+        }
+        boolean dryRun = Boolean.TRUE.equals(request.dryRun());
+        ConnectionAccess access = coreClient.requireAccess(userId, workspaceId, connectionId, viaToken);
+        try {
+            SampleDataResponse response = limiter.run(userId, () -> insertSampleData(access, request.tables(), dryRun));
+            if (!dryRun) {
+                coreClient.recordAuditLog(userId, ACTION_SAMPLE_DATA_INSERTED, sampleAuditDetail(access, response, true, tokenId));
+            }
+            return response;
+        } catch (ChangeFailedException e) {
+            if (!dryRun) {
+                coreClient.recordAuditLog(userId, ACTION_SAMPLE_DATA_INSERTED, sampleAuditDetail(access, null, false, tokenId));
+            }
+            throw e;
+        }
+    }
+
+    private SampleDataResponse insertSampleData(ConnectionAccess access, List<SampleDataRequest.Table> tables, boolean dryRun) {
+        long start = System.nanoTime();
+        Connection connection = targetDatabase.openWritable(access);
+        try {
+            connection.setAutoCommit(false);
+            Dialect dialect = targetDatabase.dialectOf(access);
+            String schema = dialect.resolveSchema(connection, access);
+            List<SampleDataResponse.TableCount> counts = new ArrayList<>();
+            int total = 0;
+            for (int tableIndex = 0; tableIndex < tables.size(); tableIndex++) {
+                SampleDataRequest.Table table = tables.get(tableIndex);
+                TableStructure structure = catalogReader.structure(connection, dialect, schema, table.name());
+                if (structure.view()) {
+                    throw new BusinessException(ErrorCode.OBJECT_NOT_EDITABLE);
+                }
+                String qualified = dialect.qualified(schema, structure.name());
+                for (int rowIndex = 0; rowIndex < table.rows().size(); rowIndex++) {
+                    String field = "tables[" + tableIndex + "].rows[" + rowIndex + "]";
+                    try {
+                        insertSampleRow(connection, dialect, qualified, structure, table.rows().get(rowIndex), field);
+                    } catch (SQLException e) {
+                        if (SqlErrors.isTimeout(e)) {
+                            throw new BusinessException(ErrorCode.QUERY_TIMEOUT);
+                        }
+                        throw new ChangeFailedException(
+                                SqlErrors.isInvalidValue(e) ? ErrorCode.INVALID_VALUE : ErrorCode.ROW_CHANGE_FAILED,
+                                rowIndex, SqlErrors.messageOf(e), field);
+                    }
+                }
+                counts.add(new SampleDataResponse.TableCount(structure.name(), table.rows().size()));
+                total += table.rows().size();
+            }
+            if (dryRun) {
+                connection.rollback();
+            } else {
+                connection.commit();
+            }
+            return new SampleDataResponse(dryRun, total, counts, elapsedMs(start));
+        } catch (SQLException e) {
+            rollbackQuietly(connection);
+            throw SqlErrors.translateQuery(e);
+        } catch (RuntimeException e) {
+            rollbackQuietly(connection);
+            throw e;
+        } finally {
+            TargetDatabase.closeQuietly(connection);
+        }
+    }
+
+    /** 샘플 행 하나 — 값은 문자열·숫자·불리언·null을 받는다(숫자와 불리언은 문자열 표기로 바꿔 타입에 맞게 넣는다) */
+    private void insertSampleRow(Connection connection, Dialect dialect, String table, TableStructure structure,
+                                 Map<String, Object> row, String field) throws SQLException {
+        Map<String, String> values = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            TableStructure.Column column = structure.column(entry.getKey());
+            if (column == null) {
+                throw new ChangeFailedException(ErrorCode.INVALID_REQUEST, 0, entry.getKey(), field);
+            }
+            Object value = entry.getValue();
+            if ("binary".equals(column.category())
+                    || !(value == null || value instanceof String || value instanceof Number || value instanceof Boolean)) {
+                throw new ChangeFailedException(ErrorCode.INVALID_VALUE, 0, column.name(), field);
+            }
+            String text = value == null ? null : String.valueOf(value);
+            if (text != null && text.length() > limits.valueLengthMax()) {
+                throw new ChangeFailedException(ErrorCode.VALUE_TOO_LARGE, 0, column.name(), field);
+            }
+            values.put(column.name(), text);
+        }
+        String sql = values.isEmpty()
+                ? dialect.insertDefaults(table)
+                : "INSERT INTO " + table + " ("
+                + values.keySet().stream().map(dialect::quote).collect(Collectors.joining(", "))
+                + ") VALUES (" + "?, ".repeat(values.size() - 1) + "?)";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            targetDatabase.applyStatementTimeout(statement);
+            int parameter = 1;
+            for (Map.Entry<String, String> entry : values.entrySet()) {
+                ValueBinder.bind(statement, parameter++, entry.getValue(), structure.column(entry.getKey()).category());
+            }
+            statement.executeUpdate();
+        }
+    }
+
+    private String sampleAuditDetail(ConnectionAccess access, SampleDataResponse response, boolean ok, String tokenId) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("workspaceId", access.workspaceId());
+        detail.put("connectionId", access.connectionId());
+        // 데이터 값은 남기지 않는다 — 테이블 이름과 행 수만 남긴다(2.5)
+        detail.put("tables", response == null ? List.of() : response.tables());
+        detail.put("inserted", response == null ? 0 : response.inserted());
+        detail.put("ok", ok);
+        if (tokenId != null) {
+            detail.put("tokenId", tokenId);
+        }
+        return objectMapper.writeValueAsString(detail);
     }
 
     /** 긴 값 읽기(3.7) */

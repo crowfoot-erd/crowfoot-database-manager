@@ -26,6 +26,11 @@ import java.io.IOException;
 public class XUserIdFilter extends OncePerRequestFilter {
 
     public static final String USER_ID_HEADER = "X-USER-ID";
+    public static final String TOKEN_WORKSPACE_HEADER = "X-TOKEN-WORKSPACE-ID";
+    public static final String TOKEN_ID_HEADER = "X-ACCESS-TOKEN-ID";
+    /** 토큰으로 온 요청이 부를 수 있는 경로 */
+    private static final java.util.regex.Pattern TOKEN_ALLOWED =
+            java.util.regex.Pattern.compile("^/database-manager/workspaces/\\d+/connections/\\d+/sample-data$");
 
     private final ObjectMapper objectMapper;
 
@@ -50,8 +55,26 @@ public class XUserIdFilter extends OncePerRequestFilter {
             writeUnauthorized(response);
             return;
         }
+        // 워크스페이스 액세스 토큰(MCP)으로 온 요청 — 그 워크스페이스의 샘플 데이터 넣기만 부를 수 있다
+        // (00-data-browser.md Section 3.8). 데이터 조회·행 편집·SQL 콘솔은 403이다
+        Long tokenWorkspaceId = null;
+        String tokenWorkspace = request.getHeader(TOKEN_WORKSPACE_HEADER);
+        if (tokenWorkspace != null && !tokenWorkspace.isBlank()) {
+            try {
+                tokenWorkspaceId = Long.parseLong(tokenWorkspace.trim());
+            } catch (NumberFormatException ex) {
+                writeError(response, ErrorCode.PERMISSION_DENIED);
+                return;
+            }
+            if (!TOKEN_ALLOWED.matcher(request.getRequestURI()).matches()
+                    || !request.getRequestURI().startsWith("/database-manager/workspaces/" + tokenWorkspaceId + "/")) {
+                writeError(response, ErrorCode.PERMISSION_DENIED);
+                return;
+            }
+        }
+        String tokenId = request.getHeader(TOKEN_ID_HEADER);
         try {
-            CurrentUserHolder.set(new CurrentUser(userId));
+            CurrentUserHolder.set(new CurrentUser(userId, tokenWorkspaceId, tokenId == null || tokenId.isBlank() ? null : tokenId.trim()));
             filterChain.doFilter(request, response);
         } finally {
             CurrentUserHolder.clear();
@@ -59,7 +82,10 @@ public class XUserIdFilter extends OncePerRequestFilter {
     }
 
     private void writeUnauthorized(HttpServletResponse response) throws IOException {
-        ErrorCode code = ErrorCode.AUTH_TOKEN_INVALID;
+        writeError(response, ErrorCode.AUTH_TOKEN_INVALID);
+    }
+
+    private void writeError(HttpServletResponse response, ErrorCode code) throws IOException {
         response.setStatus(code.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");

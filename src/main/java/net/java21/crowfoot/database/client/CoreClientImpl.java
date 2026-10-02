@@ -37,9 +37,14 @@ public class CoreClientImpl implements CoreClient {
 
     @Override
     public ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId) {
+        return requireAccess(userId, workspaceId, connectionId, false);
+    }
+
+    @Override
+    public ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId, boolean mcpWrite) {
         try {
             ApiResponse<ConnectionAccess> body = coreFeignClient.access(
-                    connectionId, new ConnectionAccessRequest(Long.toString(userId), workspaceId));
+                    connectionId, new ConnectionAccessRequest(Long.toString(userId), workspaceId, mcpWrite ? Boolean.TRUE : null));
             if (body == null || body.header() == null || !body.header().isSuccessful() || body.response() == null) {
                 log.warn("core 접근 확인 응답이 계약 밖이다(connectionId={}) — SERVICE_UNAVAILABLE으로 변환", connectionId);
                 throw BusinessException.of(ErrorCode.SERVICE_UNAVAILABLE, "detail.core.unavailable");

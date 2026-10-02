@@ -68,4 +68,33 @@ class XUserIdFilterTest {
 
         assertThat(called.get()).isTrue();
     }
+
+    @Test
+    @DisplayName("워크스페이스 액세스 토큰(MCP) — 그 워크스페이스의 샘플 데이터 넣기만 통과한다")
+    void tokenRequestsReachOnlySampleData() throws Exception {
+        MockHttpServletRequest allowed = post("/database-manager/workspaces/34/connections/302/sample-data");
+        allowed.addHeader(XUserIdFilter.USER_ID_HEADER, "1001");
+        allowed.addHeader(XUserIdFilter.TOKEN_WORKSPACE_HEADER, "34");
+        allowed.addHeader(XUserIdFilter.TOKEN_ID_HEADER, "12");
+        AtomicReference<CurrentUser> seen = new AtomicReference<>();
+        filter.doFilter(allowed, new MockHttpServletResponse(), (req, res) -> seen.set(CurrentUserHolder.get()));
+        assertThat(seen.get()).isEqualTo(new CurrentUser(1001L, 34L, "12"));
+        assertThat(seen.get().viaToken()).isTrue();
+
+        for (String uri : new String[] {
+                "/database-manager/workspaces/35/connections/302/sample-data",   // 다른 워크스페이스
+                "/database-manager/workspaces/34/connections/302/objects",        // 데이터 조회
+                "/database-manager/workspaces/34/connections/302/queries",        // SQL 콘솔
+                "/database-manager/workspaces/34/connections/302/objects/users/changes"}) {
+            MockHttpServletRequest denied = post(uri);
+            denied.addHeader(XUserIdFilter.USER_ID_HEADER, "1001");
+            denied.addHeader(XUserIdFilter.TOKEN_WORKSPACE_HEADER, "34");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            filter.doFilter(denied, response, (req, res) -> {
+                throw new AssertionError("체인을 타면 안 된다: " + uri);
+            });
+            assertThat(response.getStatus()).as(uri).isEqualTo(403);
+            assertThat(response.getContentAsString()).contains("\"resultCode\":\"PERMISSION_DENIED\"");
+        }
+    }
 }

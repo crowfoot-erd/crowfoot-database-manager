@@ -16,9 +16,17 @@ public class ChangeFailedException extends BusinessException {
     /** 데이터베이스가 돌려준 문구 — 없으면 null */
     private final String detail;
 
+    /** 실패한 자리의 표기 — null이면 changes[index]다. 샘플 데이터는 tables[t].rows[r]로 적는다 */
+    private final String field;
+
     public ChangeFailedException(ErrorCode errorCode, int index, String detail) {
+        this(errorCode, index, detail, null);
+    }
+
+    public ChangeFailedException(ErrorCode errorCode, int index, String detail, String field) {
         super(errorCode);
         this.index = index;
         this.detail = detail;
+        this.field = field;
     }
 }

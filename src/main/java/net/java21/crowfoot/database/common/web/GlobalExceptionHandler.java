@@ -45,7 +45,8 @@ public class GlobalExceptionHandler {
         ErrorCode code = ex.getErrorCode();
         return ResponseEntity.status(code.getStatus())
                 .body(ErrorResponse.of(code.getCode(), codeMessage(code),
-                        List.of(new ErrorResponse.FieldError("changes[" + ex.getIndex() + "]", code.getCode(), ex.getDetail()))));
+                        List.of(new ErrorResponse.FieldError(ex.getField() != null ? ex.getField() : "changes[" + ex.getIndex() + "]",
+                                code.getCode(), ex.getDetail()))));
     }
 
     @ExceptionHandler(BusinessException.class)
