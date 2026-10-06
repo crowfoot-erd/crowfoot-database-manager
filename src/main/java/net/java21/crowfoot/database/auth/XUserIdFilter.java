@@ -28,9 +28,9 @@ public class XUserIdFilter extends OncePerRequestFilter {
     public static final String USER_ID_HEADER = "X-USER-ID";
     public static final String TOKEN_WORKSPACE_HEADER = "X-TOKEN-WORKSPACE-ID";
     public static final String TOKEN_ID_HEADER = "X-ACCESS-TOKEN-ID";
-    /** 토큰으로 온 요청이 부를 수 있는 경로 */
+    /** 토큰으로 온 요청이 부를 수 있는 경로 — 샘플 데이터(3.8), 데이터 확인(3.9 — v1.36, 읽기 전용) */
     private static final java.util.regex.Pattern TOKEN_ALLOWED =
-            java.util.regex.Pattern.compile("^/database-manager/workspaces/\\d+/connections/\\d+/sample-data$");
+            java.util.regex.Pattern.compile("^/database-manager/workspaces/\\d+/connections/\\d+/(sample-data|checks)$");
 
     private final ObjectMapper objectMapper;
 

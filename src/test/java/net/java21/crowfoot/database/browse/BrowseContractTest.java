@@ -104,7 +104,7 @@ abstract class BrowseContractTest {
 
         assertThat(response.dbmsType()).isEqualTo(access().dbmsType());
         assertThat(response.objects()).extracting(ObjectsResponse.Item::name)
-                .containsExactly("orderXlogs", "order_logs", "orders", "paid_orders", "users");
+                .containsExactly("orderXlogs", "order_items", "order_logs", "orders", "paid_orders", "users");
         Map<String, ObjectsResponse.Item> byName = new java.util.HashMap<>();
         response.objects().forEach(item -> byName.put(item.name(), item));
         assertThat(byName.get("users").kind()).isEqualTo("TABLE");
@@ -352,6 +352,141 @@ abstract class BrowseContractTest {
         } finally {
             TargetDatabase.closeQuietly(connection);
         }
+        assertThat(service.count(USER, WORKSPACE, CONNECTION, "orders", null).count()).isEqualTo("5");
+    }
+
+    // ── 키 기준 페이지 넘김(v1.36 — Section 5.11) ─────────────────────────────
+
+    private static List<Object> ids(RowsResponse response, String... columns) {
+        return response.rows().stream()
+                .map(row -> (Object) java.util.Arrays.stream(columns).map(c -> String.valueOf(row.get(indexOf(response, c))))
+                        .collect(java.util.stream.Collectors.joining("/")))
+                .toList();
+    }
+
+    private static RowsRequest keyset(int page, int size, List<Filter> filters, List<Sort> sort,
+                                      Map<String, String> after, Map<String, String> before) {
+        return new RowsRequest(page, size, filters, sort, after, before);
+    }
+
+    /** OFFSET으로 읽은 페이지들과 after로 앞으로, before로 뒤로 읽은 페이지들이 같은지 */
+    private void assertKeysetMatchesOffset(String object, List<Filter> filters, List<Sort> sort, String... key) {
+        List<RowsResponse> offsetPages = new ArrayList<>();
+        for (int page = 1; ; page++) {
+            RowsResponse response = rows(object, new RowsRequest(page, 2, filters, sort));
+            offsetPages.add(response);
+            if (!response.hasNext()) {
+                break;
+            }
+        }
+        assertThat(offsetPages.size()).as("두 페이지 이상이어야 의미가 있다").isGreaterThan(1);
+
+        RowsResponse current = offsetPages.get(0);
+        assertThat(current.keyset()).isTrue();
+        assertThat(current.hasPrevious()).isFalse();
+        assertThat(current.firstKey()).containsOnlyKeys(key);
+        for (int page = 2; page <= offsetPages.size(); page++) {
+            current = rows(object, keyset(page, 2, filters, sort, current.lastKey(), null));
+            RowsResponse expected = offsetPages.get(page - 1);
+            assertThat(ids(current, key)).as("after — %d쪽", page).isEqualTo(ids(expected, key));
+            assertThat(current.rows()).isEqualTo(expected.rows());
+            assertThat(current.hasNext()).isEqualTo(expected.hasNext());
+            assertThat(current.hasPrevious()).isTrue();
+            assertThat(current.page()).isEqualTo(page);
+        }
+        for (int page = offsetPages.size() - 1; page >= 1; page--) {
+            current = rows(object, keyset(page, 2, filters, sort, null, current.firstKey()));
+            RowsResponse expected = offsetPages.get(page - 1);
+            assertThat(ids(current, key)).as("before — %d쪽", page).isEqualTo(ids(expected, key));
+            assertThat(current.hasNext()).isTrue();
+            assertThat(current.hasPrevious()).isEqualTo(page > 1);
+        }
+    }
+
+    @Test
+    @DisplayName("키 기준 페이지 넘김 — 기본 정렬에서 after·before로 읽은 페이지가 OFFSET 결과와 같다")
+    void keysetMatchesOffset() {
+        RowsResponse first = rows("orders", new RowsRequest(1, 2, null, null));
+        assertThat(first.keyset()).isTrue();
+        assertThat(first.firstKey()).isEqualTo(Map.of("id", "1"));
+        assertThat(first.lastKey()).isEqualTo(Map.of("id", "2"));
+
+        RowsResponse second = rows("orders", keyset(2, 2, null, null, Map.of("id", "2"), null));
+        assertThat(ids(second, "id")).containsExactly("3", "4");
+
+        assertKeysetMatchesOffset("orders", null, null, "id");
+    }
+
+    @Test
+    @DisplayName("키 기준 페이지 넘김 — 조건과 함께, 단일 기본 키 내림차순 정렬에서도 OFFSET 결과와 같다")
+    void keysetWithFiltersAndDescendingKey() {
+        List<Filter> paid = List.of(new Filter("status", Op.EQ, "PAID"));
+        RowsResponse afterTwo = rows("orders", keyset(2, 2, paid, null, Map.of("id", "2"), null));
+        assertThat(ids(afterTwo, "id")).containsExactly("4");
+        assertThat(afterTwo.hasNext()).isFalse();
+
+        assertKeysetMatchesOffset("orders", paid, null, "id");
+        assertKeysetMatchesOffset("orders", null, List.of(new Sort("id", Direction.DESC)), "id");
+        assertKeysetMatchesOffset("orders", List.of(new Filter("user_id", Op.EQ, "1")),
+                List.of(new Sort("id", Direction.DESC)), "id");
+    }
+
+    @Test
+    @DisplayName("키 기준 페이지 넘김 — 복합 기본 키도 OFFSET 결과와 같다")
+    void keysetWithCompositeKey() {
+        RowsResponse all = rows("order_items", null);
+        assertThat(ids(all, "order_id", "line_no")).containsExactly("1/1", "1/2", "1/3", "2/1", "3/1", "3/2");
+
+        RowsResponse afterOneTwo = rows("order_items",
+                keyset(2, 2, null, null, Map.of("order_id", "1", "line_no", "2"), null));
+        assertThat(ids(afterOneTwo, "order_id", "line_no")).containsExactly("1/3", "2/1");
+
+        assertKeysetMatchesOffset("order_items", null, null, "order_id", "line_no");
+        assertKeysetMatchesOffset("order_items", List.of(new Filter("qty", Op.GTE, "2")), null, "order_id", "line_no");
+    }
+
+    @Test
+    @DisplayName("키 기준 페이지 넘김 — 기본 키 순서가 아니면 OFFSET으로 읽고 keyset=false")
+    void keysetUnavailableForOtherSorts() {
+        RowsResponse byStatus = rows("orders", new RowsRequest(1, 2, null, List.of(new Sort("status", Direction.ASC))));
+        assertThat(byStatus.keyset()).isFalse();
+        assertThat(byStatus.firstKey()).isNull();
+        assertThat(byStatus.lastKey()).isNull();
+
+        RowsResponse twoSorts = rows("orders", new RowsRequest(1, 2, null,
+                List.of(new Sort("id", Direction.ASC), new Sort("status", Direction.ASC))));
+        assertThat(twoSorts.keyset()).isFalse();
+        // 복합 키 테이블은 정렬을 지정하면 OFFSET이다
+        assertThat(rows("order_items", new RowsRequest(1, 2, null, List.of(new Sort("order_id", Direction.ASC))))
+                .keyset()).isFalse();
+        // 기본 키가 없으면(뷰·키 없는 테이블) OFFSET이다
+        assertThat(rows("paid_orders", null).keyset()).isFalse();
+        assertThat(rows("order_logs", null).keyset()).isFalse();
+        // OFFSET 페이지의 이전 페이지 유무는 쪽 번호로 정한다
+        assertThat(rows("orders", new RowsRequest(2, 2, null, List.of(new Sort("status", Direction.ASC))))
+                .hasPrevious()).isTrue();
+    }
+
+    @Test
+    @DisplayName("키 기준 페이지 넘김 — 기본 키가 아닌 키·빠진 키·쓸 수 없는 정렬·after와 before 함께는 INVALID_REQUEST")
+    void rejectsInvalidKeyset() {
+        assertError(() -> rows("orders", keyset(2, 2, null, null, Map.of("user_id", "1"), null)),
+                ErrorCode.INVALID_REQUEST);
+        assertError(() -> rows("orders", keyset(2, 2, null, null, Map.of("id", "1", "user_id", "1"), null)),
+                ErrorCode.INVALID_REQUEST);
+        assertError(() -> rows("orders", keyset(2, 2, null, null, Map.of("id\"; DROP TABLE orders; --", "1"), null)),
+                ErrorCode.INVALID_REQUEST);
+        assertError(() -> rows("order_items", keyset(2, 2, null, null, Map.of("order_id", "1"), null)),
+                ErrorCode.INVALID_REQUEST);
+        assertError(() -> rows("orders", keyset(2, 2, null, null, Map.of("id", "1"), Map.of("id", "3"))),
+                ErrorCode.INVALID_REQUEST);
+        assertError(() -> rows("orders", keyset(2, 2, null, List.of(new Sort("status", Direction.ASC)),
+                Map.of("id", "1"), null)), ErrorCode.INVALID_REQUEST);
+        assertError(() -> rows("order_logs", keyset(2, 2, null, null, null, Map.of("message", "x"))),
+                ErrorCode.INVALID_REQUEST);
+        Map<String, String> nullValue = new java.util.HashMap<>();
+        nullValue.put("id", null);
+        assertError(() -> rows("orders", keyset(2, 2, null, null, nullValue, null)), ErrorCode.INVALID_REQUEST);
         assertThat(service.count(USER, WORKSPACE, CONNECTION, "orders", null).count()).isEqualTo("5");
     }
 

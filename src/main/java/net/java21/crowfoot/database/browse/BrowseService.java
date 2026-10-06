@@ -76,7 +76,7 @@ public class BrowseService {
                 StructureResponse.of(catalogReader.structure(connection, dialect, schema, objectName))));
     }
 
-    /** 행 조회(3.3) */
+    /** 행 조회(3.3) — 기본 키 순서면 after·before로 키 기준 페이지 넘김을 한다(5.11) */
     public RowsResponse rows(long userId, String workspaceId, String connectionId, String objectName,
                              RowsRequest request) {
         int page = request == null || request.page() == null ? 1 : request.page();
@@ -90,18 +90,29 @@ public class BrowseService {
             TableStructure structure = catalogReader.structure(connection, dialect, schema, objectName);
             RowFilters filters = RowFilters.of(request == null ? null : request.filters(), structure, dialect,
                     limits.filtersMax());
+            List<RowsRequest.Sort> sort = request == null ? null : request.sort();
+            String orderBy = orderBy(sort, structure, dialect);
+            Keyset keyset = Keyset.of(sort, structure, dialect,
+                    request == null ? null : request.after(), request == null ? null : request.before());
+            String where = filters.sql();
+            if (keyset.condition() != null) {
+                where = where.isEmpty() ? " WHERE " + keyset.condition() : where + " AND (" + keyset.condition() + ")";
+            }
             String sql = "SELECT " + selectList(structure, dialect)
                     + " FROM " + dialect.qualified(schema, structure.name())
-                    + filters.sql()
-                    + orderBy(request == null ? null : request.sort(), structure, dialect)
-                    + " LIMIT ? OFFSET ?";
+                    + where
+                    + (keyset.backward() ? keyset.reversedOrderBy() : orderBy)
+                    + (keyset.condition() != null ? " LIMIT ?" : " LIMIT ? OFFSET ?");
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 targetDatabase.applyStatementTimeout(statement);
                 int index = filters.bind(statement, 1);
+                index = keyset.bind(statement, index);
                 statement.setInt(index++, size + 1);            // 한 행 더 읽어 다음 페이지 유무만 판단한다
-                statement.setLong(index, (long) (page - 1) * size);
+                if (keyset.condition() == null) {
+                    statement.setLong(index, (long) (page - 1) * size);
+                }
                 try (ResultSet rs = statement.executeQuery()) {
-                    return readPage(rs, structure, page, size, start);
+                    return readPage(rs, structure, keyset, page, size, start);
                 }
             }
         }));
@@ -128,17 +139,18 @@ public class BrowseService {
         }));
     }
 
-    private RowsResponse readPage(ResultSet rs, TableStructure structure, int page, int size, long start)
-            throws SQLException {
+    private RowsResponse readPage(ResultSet rs, TableStructure structure, Keyset keyset, int page, int size,
+                                  long start) throws SQLException {
         ResultSetMetaData meta = rs.getMetaData();
         int columnCount = meta.getColumnCount();
         List<List<Object>> rows = new ArrayList<>();
-        boolean hasNext = false;
+        List<Map<String, String>> keys = new ArrayList<>();
+        boolean more = false;
         boolean truncated = false;
         long bytes = 0;
         while (rs.next()) {
             if (rows.size() == size) {
-                hasNext = true;                                   // size + 1번째 행 — 내보내지 않는다
+                more = true;                                      // size + 1번째 행 — 내보내지 않는다
                 break;
             }
             List<Object> row = new ArrayList<>(columnCount);
@@ -149,15 +161,33 @@ public class BrowseService {
             }
             if (bytes > limits.responseBytesMax() && !rows.isEmpty()) {
                 truncated = true;                                 // 응답 크기 한도 — 여기서 자른다(Section 2.3)
-                hasNext = true;
+                more = true;
                 break;
             }
             rows.add(row);
+            if (keyset.usable()) {
+                keys.add(keyset.read(rs, meta, structure));
+            }
+        }
+        boolean hasNext;
+        boolean hasPrevious;
+        if (keyset.backward()) {
+            // 거꾸로 읽었다 — 화면 순서로 되돌린다. before 키의 행이 뒤에 있으므로 다음 페이지는 있다
+            java.util.Collections.reverse(rows);
+            java.util.Collections.reverse(keys);
+            hasPrevious = more;
+            hasNext = true;
+        } else {
+            hasNext = more;
+            hasPrevious = keyset.condition() != null || page > 1;
         }
         List<ColumnMeta> columns = structure.columns().stream()
                 .map(c -> new ColumnMeta(c.name(), c.typeName(), c.category(), c.nullable(), c.primaryKey(), c.generated()))
                 .toList();
-        return new RowsResponse(columns, rows, page, size, hasNext, truncated, elapsedMs(start));
+        Map<String, String> firstKey = keys.isEmpty() ? null : keys.get(0);
+        Map<String, String> lastKey = keys.isEmpty() ? null : keys.get(keys.size() - 1);
+        return new RowsResponse(columns, rows, page, size, hasNext, truncated, elapsedMs(start),
+                hasPrevious, keyset.usable(), firstKey, lastKey);
     }
 
     private static String selectList(TableStructure structure, Dialect dialect) {

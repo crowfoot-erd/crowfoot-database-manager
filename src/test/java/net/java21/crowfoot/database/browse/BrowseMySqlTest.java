@@ -48,6 +48,11 @@ class BrowseMySqlTest extends BrowseContractTest {
                       CONSTRAINT fk_orders_user_id FOREIGN KEY (user_id) REFERENCES users (id)
                     )""");
             statement.execute("CREATE TABLE order_logs (message VARCHAR(100))");
+            // 복합 기본 키 — 키 기준 페이지 넘김(Section 5.11)
+            statement.execute("CREATE TABLE order_items (order_id BIGINT NOT NULL, line_no INT NOT NULL,"
+                    + " qty INT NOT NULL, PRIMARY KEY (order_id, line_no))");
+            statement.execute("INSERT INTO order_items (order_id, line_no, qty) VALUES"
+                    + " (3, 2, 6), (1, 1, 1), (1, 3, 3), (2, 1, 4), (1, 2, 2), (3, 1, 5)");
             statement.execute("CREATE TABLE orderXlogs (id INT PRIMARY KEY, other VARCHAR(10))");
             statement.execute("CREATE VIEW paid_orders AS SELECT id, user_id FROM orders WHERE status = 'PAID'");
             statement.execute("INSERT INTO users (id, email, name, is_active, balance, big, bio, avatar, created_at) VALUES"

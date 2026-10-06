@@ -233,4 +233,68 @@ abstract class QueryContractTest {
         assertThat(response.ok()).isTrue();
         assertThat(response.rows()).isNotEmpty();
     }
+
+    /* ---------- 데이터 확인(Section 3.9 — v1.36) ---------- */
+
+    CheckService checkServiceFor(LimitsProperties limits) {
+        CoreClient core = new CoreClient() {
+            @Override
+            public ConnectionAccess requireAccess(long userId, String workspaceId, String connectionId) {
+                return access();
+            }
+
+            @Override
+            public void recordAuditLog(long actorId, String action, String detail) {
+                audits.add(new String[] {Long.toString(actorId), action, detail});
+            }
+        };
+        return new CheckService(core, new TargetDatabase(List.of(new MySqlDialect(), new PostgresDialect()), limits),
+                new UserConcurrencyLimiter(limits), limits, JsonMapper.builder().build());
+    }
+
+    @Test
+    @DisplayName("데이터 확인 — 첫 행 첫 열을 기대값과 수로 견주고, 한 항목의 실패가 다른 항목을 막지 않으며, 쓰기 문장은 실행하지 않는다")
+    void runsChecks() throws Exception {
+        CheckService checks = checkServiceFor(limits(Duration.ofSeconds(8), 100_000));
+        var response = checks.run(USER, WORKSPACE, CONNECTION, new net.java21.crowfoot.database.query.dto.CheckRequest(List.of(
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c1", "SELECT COUNT(*) FROM items WHERE qty < 0", null),
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c2", "SELECT SUM(qty) FROM items", "60.00"),
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c3", "SELECT COUNT(*) FROM items", "2"),
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c4", "SELECT nope FROM no_such_table", null),
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c5", "SELECT name FROM items WHERE id = 1", "apple"),
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c6", "DELETE FROM items", null),
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("c7", "SELECT 1; SELECT 2", "1"))));
+
+        assertThat(response.results()).extracting(r -> r.key() + ":" + r.status()).containsExactly(
+                "c1:PASSED", "c2:PASSED", "c3:FAILED", "c4:ERROR", "c5:PASSED", "c6:ERROR", "c7:ERROR");
+        assertThat(response.results().get(2).value()).isEqualTo("3");
+        assertThat(response.results().get(3).errorCode()).isEqualTo("QUERY_FAILED");
+        assertThat(response.results().get(3).message()).isNotBlank();
+        assertThat(response.results().get(5).errorCode()).isEqualTo("UNSUPPORTED_STATEMENT");
+        assertThat(response.results().get(6).errorCode()).isEqualTo("MULTIPLE_STATEMENTS");
+        assertThat(response.passed()).isEqualTo(3);
+        assertThat(response.failed()).isEqualTo(1);
+        assertThat(response.errors()).isEqualTo(3);
+        assertThat(count()).isEqualTo("3"); // DELETE는 실행하지 않았다
+
+        String[] audit = audits.stream().filter(a -> a[1].equals("CONNECTION_CHECKS_RUN")).findFirst().orElseThrow();
+        assertThat(audit[2]).contains("\"checks\":7").contains("\"passed\":3").doesNotContain("items");
+    }
+
+    @Test
+    @DisplayName("데이터 확인 — 읽기로 보이지만 지우는 문장도 읽기 전용 접속이라 바뀌지 않는다. 항목 수 한도를 넘으면 거부한다")
+    void checksAreReadOnly() throws Exception {
+        CheckService checks = checkServiceFor(limits(Duration.ofSeconds(8), 100_000));
+        var response = checks.run(USER, WORKSPACE, CONNECTION, new net.java21.crowfoot.database.query.dto.CheckRequest(List.of(
+                new net.java21.crowfoot.database.query.dto.CheckRequest.Check("w", writeDisguisedAsRead(), null))));
+        assertThat(response.results().get(0).status()).isIn("ERROR", "FAILED", "PASSED");
+        assertThat(count()).isEqualTo("3");
+
+        List<net.java21.crowfoot.database.query.dto.CheckRequest.Check> many = new ArrayList<>();
+        for (int i = 0; i < 51; i++) {
+            many.add(new net.java21.crowfoot.database.query.dto.CheckRequest.Check("k" + i, "SELECT 1", "1"));
+        }
+        assertError(() -> checks.run(USER, WORKSPACE, CONNECTION, new net.java21.crowfoot.database.query.dto.CheckRequest(many)),
+                ErrorCode.INVALID_REQUEST);
+    }
 }

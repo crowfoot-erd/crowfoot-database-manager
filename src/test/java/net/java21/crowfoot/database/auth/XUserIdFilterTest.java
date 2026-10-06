@@ -70,7 +70,7 @@ class XUserIdFilterTest {
     }
 
     @Test
-    @DisplayName("워크스페이스 액세스 토큰(MCP) — 그 워크스페이스의 샘플 데이터 넣기만 통과한다")
+    @DisplayName("워크스페이스 액세스 토큰(MCP) — 그 워크스페이스의 샘플 데이터 넣기와 데이터 확인(v1.36)만 통과한다")
     void tokenRequestsReachOnlySampleData() throws Exception {
         MockHttpServletRequest allowed = post("/database-manager/workspaces/34/connections/302/sample-data");
         allowed.addHeader(XUserIdFilter.USER_ID_HEADER, "1001");
@@ -81,8 +81,16 @@ class XUserIdFilterTest {
         assertThat(seen.get()).isEqualTo(new CurrentUser(1001L, 34L, "12"));
         assertThat(seen.get().viaToken()).isTrue();
 
+        MockHttpServletRequest checks = post("/database-manager/workspaces/34/connections/302/checks");
+        checks.addHeader(XUserIdFilter.USER_ID_HEADER, "1001");
+        checks.addHeader(XUserIdFilter.TOKEN_WORKSPACE_HEADER, "34");
+        AtomicReference<CurrentUser> checked = new AtomicReference<>();
+        filter.doFilter(checks, new MockHttpServletResponse(), (req, res) -> checked.set(CurrentUserHolder.get()));
+        assertThat(checked.get()).isNotNull();
+
         for (String uri : new String[] {
                 "/database-manager/workspaces/35/connections/302/sample-data",   // 다른 워크스페이스
+                "/database-manager/workspaces/35/connections/302/checks",        // 다른 워크스페이스의 데이터 확인
                 "/database-manager/workspaces/34/connections/302/objects",        // 데이터 조회
                 "/database-manager/workspaces/34/connections/302/queries",        // SQL 콘솔
                 "/database-manager/workspaces/34/connections/302/objects/users/changes"}) {
