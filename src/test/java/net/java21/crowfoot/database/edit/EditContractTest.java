@@ -250,6 +250,28 @@ abstract class EditContractTest {
     }
 
     @Test
+    @DisplayName("생성 컬럼 — 값을 주면 GENERATED_COLUMN으로 거부하고, 빼고 넣으면 데이터베이스가 계산한다")
+    @SuppressWarnings("unchecked")
+    void rejectsGeneratedColumn() throws Exception {
+        assertThatThrownBy(() -> apply("priced", insert(map("id", "1", "qty", "2", "price", "3", "total", "6"))))
+                .isInstanceOfSatisfying(ChangeFailedException.class, ex -> {
+                    assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.GENERATED_COLUMN);
+                    assertThat(ex.getIndex()).isZero();
+                });
+        assertThatThrownBy(() -> sample(true, table("priced", map("id", 1, "qty", 2, "price", 3, "total", 6))))
+                .isInstanceOfSatisfying(ChangeFailedException.class, ex -> {
+                    assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.GENERATED_COLUMN);
+                    assertThat(ex.getField()).isEqualTo("tables[0].rows[0]");
+                });
+
+        apply("priced", insert(map("id", "1", "qty", "2", "price", "3")));
+        assertThat(row("SELECT total FROM priced WHERE id = 1")).containsExactly("6");
+        assertThatThrownBy(() -> apply("priced", update(map("id", "1"), map("total", "7"), null)))
+                .isInstanceOfSatisfying(ChangeFailedException.class,
+                        ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.GENERATED_COLUMN));
+    }
+
+    @Test
     @DisplayName("요청 검증 — 키 누락·없는 컬럼·이진 컬럼·객체 표기·빈 수정")
     void validatesChanges() throws Exception {
         assertChangeFailed(() -> apply("notes", update(null, map("title", "x"), null)), ErrorCode.INVALID_REQUEST, 0);

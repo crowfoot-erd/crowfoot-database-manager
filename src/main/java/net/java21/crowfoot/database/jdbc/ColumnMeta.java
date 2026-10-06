@@ -9,5 +9,11 @@ package net.java21.crowfoot.database.jdbc;
  * @param nullable   NULL 허용
  * @param primaryKey 기본 키 컬럼
  */
-public record ColumnMeta(String name, String typeName, String category, boolean nullable, boolean primaryKey) {
+public record ColumnMeta(String name, String typeName, String category, boolean nullable, boolean primaryKey,
+                         boolean generated) {
+
+    /** 질의 결과 열 — 생성 컬럼인지 알 수 없다 */
+    public ColumnMeta(String name, String typeName, String category, boolean nullable, boolean primaryKey) {
+        this(name, typeName, category, nullable, primaryKey, false);
+    }
 }

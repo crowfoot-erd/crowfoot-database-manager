@@ -155,7 +155,7 @@ public class BrowseService {
             rows.add(row);
         }
         List<ColumnMeta> columns = structure.columns().stream()
-                .map(c -> new ColumnMeta(c.name(), c.typeName(), c.category(), c.nullable(), c.primaryKey()))
+                .map(c -> new ColumnMeta(c.name(), c.typeName(), c.category(), c.nullable(), c.primaryKey(), c.generated()))
                 .toList();
         return new RowsResponse(columns, rows, page, size, hasNext, truncated, elapsedMs(start));
     }

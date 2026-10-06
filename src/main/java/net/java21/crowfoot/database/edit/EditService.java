@@ -165,6 +165,9 @@ public class EditService {
             if (column == null) {
                 throw new ChangeFailedException(ErrorCode.INVALID_REQUEST, 0, entry.getKey(), field);
             }
+            if (column.generated()) {
+                throw new ChangeFailedException(ErrorCode.GENERATED_COLUMN, 0, column.name(), field);
+            }
             Object value = entry.getValue();
             if ("binary".equals(column.category())
                     || !(value == null || value instanceof String || value instanceof Number || value instanceof Boolean)) {
@@ -433,6 +436,9 @@ public class EditService {
             TableStructure.Column column = structure.column(entry.getKey());
             if (column == null) {
                 throw failRequest(index);
+            }
+            if (column.generated()) {
+                throw new ChangeFailedException(ErrorCode.GENERATED_COLUMN, Math.max(index, 0), column.name());
             }
             Object value = entry.getValue();
             if ("binary".equals(column.category()) || !(value == null || value instanceof String)) {

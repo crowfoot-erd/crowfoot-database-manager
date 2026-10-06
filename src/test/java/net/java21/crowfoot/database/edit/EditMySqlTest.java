@@ -28,6 +28,7 @@ class EditMySqlTest extends EditContractTest {
     void resetData() throws Exception {
         try (Connection connection = direct(); Statement statement = connection.createStatement()) {
             statement.execute("DROP VIEW IF EXISTS done_notes");
+            statement.execute("DROP TABLE IF EXISTS priced");
             statement.execute("DROP TABLE IF EXISTS tags");
             statement.execute("DROP TABLE IF EXISTS note_logs");
             statement.execute("DROP TABLE IF EXISTS notes");
@@ -42,6 +43,9 @@ class EditMySqlTest extends EditContractTest {
                     )""");
             statement.execute("CREATE TABLE tags (note_id BIGINT NOT NULL, tag VARCHAR(30) NOT NULL, weight INT NULL, PRIMARY KEY (note_id, tag))");
             statement.execute("CREATE TABLE note_logs (message VARCHAR(100))");
+            // 생성 컬럼(v1.35) — 행 편집과 샘플 데이터는 이 컬럼에 값을 넣지 않는다
+            statement.execute("CREATE TABLE priced (id BIGINT PRIMARY KEY, qty INT NOT NULL, price INT NOT NULL, "
+                    + "total INT GENERATED ALWAYS AS (qty * price) STORED)");
             statement.execute("CREATE VIEW done_notes AS SELECT id, title FROM notes WHERE done = 1");
             statement.execute("INSERT INTO notes (id, title, body, done, qty) VALUES (1, '첫 메모', '" + longText() + "', 0, 10), (2, '둘째 메모', '본문 2', 0, NULL)");
             statement.execute("INSERT INTO tags VALUES (1, 'work', 1), (2, 'home', NULL)");

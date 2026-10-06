@@ -57,12 +57,45 @@ public class CatalogReader {
                         rs.getString("COLUMN_DEF"),
                         "YES".equalsIgnoreCase(rs.getString("IS_AUTOINCREMENT")),
                         remarks == null || remarks.isBlank() ? null : remarks,
-                        jdbcType));
+                        jdbcType,
+                        isGenerated(rs)));
             }
         }
         return new TableStructure(object.name(), object.view(), object.comment(), List.copyOf(columns), primaryKey,
                 object.view() ? List.of() : readIndexes(metaData, catalog, schemaPattern, object.name()),
-                object.view() ? List.of() : readForeignKeys(metaData, catalog, schemaPattern, object.name()));
+                object.view() ? List.of() : readForeignKeys(metaData, catalog, schemaPattern, object.name()),
+                object.view() ? List.of() : readReferences(metaData, catalog, schemaPattern, object.name()));
+    }
+
+    /** 생성 컬럼인지 — JDBC 4.1의 IS_GENERATEDCOLUMN. 이 열을 내지 않는 드라이버는 아니라고 본다 */
+    private static boolean isGenerated(ResultSet rs) {
+        try {
+            return "YES".equalsIgnoreCase(rs.getString("IS_GENERATEDCOLUMN"));
+        } catch (SQLException missing) {
+            return false;
+        }
+    }
+
+    /** 이 테이블을 참조하는 외래 키(getExportedKeys) — 데이터 탭의 "이 행을 참조하는 행 보기"(00-data-browser.md Section 5.9) */
+    private static List<TableStructure.Reference> readReferences(DatabaseMetaData metaData, String catalog,
+                                                                 String schema, String table) throws SQLException {
+        // 자식 테이블마다 외래 키 이름이 겹칠 수 있다 — (자식 테이블, 이름) 쌍으로 묶는다
+        Map<List<String>, Map<Integer, String[]>> pairs = new LinkedHashMap<>();
+        try (ResultSet rs = metaData.getExportedKeys(catalog, schema, table)) {
+            while (rs.next()) {
+                String childTable = rs.getString("FKTABLE_NAME");
+                String name = rs.getString("FK_NAME");
+                List<String> key = List.of(childTable, name == null ? childTable + "_fk" : name);
+                pairs.computeIfAbsent(key, k -> new TreeMap<>()).put(rs.getInt("KEY_SEQ"),
+                        new String[] {rs.getString("FKCOLUMN_NAME"), rs.getString("PKCOLUMN_NAME")});
+            }
+        }
+        return pairs.entrySet().stream()
+                .map(entry -> new TableStructure.Reference(entry.getKey().get(1), entry.getKey().get(0),
+                        entry.getValue().values().stream().map(pair -> pair[0]).toList(),
+                        entry.getValue().values().stream().map(pair -> pair[1]).toList()))
+                .sorted(Comparator.comparing(TableStructure.Reference::object).thenComparing(TableStructure.Reference::name))
+                .toList();
     }
 
     private static List<String> readPrimaryKey(DatabaseMetaData metaData, String catalog, String schema, String table)

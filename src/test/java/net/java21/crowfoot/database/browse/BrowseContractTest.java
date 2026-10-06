@@ -163,6 +163,17 @@ abstract class BrowseContractTest {
             assertThat(index.name()).isEqualTo("idx_orders_user_id");
             assertThat(index.unique()).isFalse();
         });
+
+        // 생성 컬럼과 참조하는 쪽(v1.35 — §5.9)
+        assertThat(orders.columns()).filteredOn(StructureResponse.Column::generated)
+                .extracting(StructureResponse.Column::name).containsExactly("status_code");
+        assertThat(orders.referencedBy()).isEmpty();
+        assertThat(users.referencedBy()).singleElement().satisfies(reference -> {
+            assertThat(reference.name()).isEqualTo("fk_orders_user_id");
+            assertThat(reference.object()).isEqualTo("orders");
+            assertThat(reference.columns()).containsExactly("user_id");
+            assertThat(reference.referencedColumns()).containsExactly("id");
+        });
     }
 
     @Test

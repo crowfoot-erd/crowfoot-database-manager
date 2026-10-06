@@ -56,6 +56,7 @@ class BrowsePostgresTest extends BrowseContractTest {
                       id BIGSERIAL PRIMARY KEY,
                       user_id BIGINT NOT NULL,
                       status VARCHAR(20) NOT NULL,
+                      status_code VARCHAR(20) GENERATED ALWAYS AS (upper(status)) STORED,
                       ordered_at TIMESTAMPTZ NOT NULL,
                       CONSTRAINT fk_orders_user_id FOREIGN KEY (user_id) REFERENCES users (id)
                     )""");

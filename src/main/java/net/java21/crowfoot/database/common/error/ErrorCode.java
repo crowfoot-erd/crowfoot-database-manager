@@ -31,6 +31,7 @@ public enum ErrorCode {
     OBJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "OBJECT_NOT_FOUND", "테이블 또는 뷰를 찾을 수 없습니다"),
     OBJECT_NOT_EDITABLE(HttpStatus.CONFLICT, "OBJECT_NOT_EDITABLE", "이 객체는 편집할 수 없습니다"),
     INVALID_VALUE(HttpStatus.BAD_REQUEST, "INVALID_VALUE", "값이 컬럼 타입에 맞지 않습니다"),
+    GENERATED_COLUMN(HttpStatus.BAD_REQUEST, "GENERATED_COLUMN", "생성 컬럼에는 값을 넣을 수 없습니다"),
     ROW_CONFLICT(HttpStatus.CONFLICT, "ROW_CONFLICT", "대상 행이 없거나 그 사이에 바뀌었습니다"),
     ROW_CHANGE_FAILED(HttpStatus.CONFLICT, "ROW_CHANGE_FAILED", "데이터베이스가 변경을 거부했습니다"),
     VALUE_TOO_LARGE(HttpStatus.CONTENT_TOO_LARGE, "VALUE_TOO_LARGE", "값이 너무 큽니다"),

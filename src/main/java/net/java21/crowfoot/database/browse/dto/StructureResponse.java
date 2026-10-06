@@ -15,11 +15,12 @@ public record StructureResponse(
         List<Column> columns,
         List<String> primaryKey,
         List<TableStructure.Index> indexes,
-        List<TableStructure.ForeignKey> foreignKeys
+        List<TableStructure.ForeignKey> foreignKeys,
+        List<TableStructure.Reference> referencedBy
 ) {
 
     public record Column(String name, String typeName, String category, boolean nullable, boolean primaryKey,
-                         String defaultValue, boolean autoIncrement, String comment) {
+                         String defaultValue, boolean autoIncrement, String comment, boolean generated) {
     }
 
     public static StructureResponse of(TableStructure structure) {
@@ -30,10 +31,11 @@ public record StructureResponse(
                 structure.editable(),
                 structure.columns().stream()
                         .map(c -> new Column(c.name(), c.typeName(), c.category(), c.nullable(), c.primaryKey(),
-                                c.defaultValue(), c.autoIncrement(), c.comment()))
+                                c.defaultValue(), c.autoIncrement(), c.comment(), c.generated()))
                         .toList(),
                 structure.primaryKey(),
                 structure.indexes(),
-                structure.foreignKeys());
+                structure.foreignKeys(),
+                structure.referencedBy());
     }
 }

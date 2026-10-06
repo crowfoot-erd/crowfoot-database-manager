@@ -12,17 +12,22 @@ public record TableStructure(
         List<Column> columns,
         List<String> primaryKey,
         List<Index> indexes,
-        List<ForeignKey> foreignKeys
+        List<ForeignKey> foreignKeys,
+        List<Reference> referencedBy
 ) {
 
     public record Column(String name, String typeName, String category, boolean nullable, boolean primaryKey,
-                         String defaultValue, boolean autoIncrement, String comment, int jdbcType) {
+                         String defaultValue, boolean autoIncrement, String comment, int jdbcType, boolean generated) {
     }
 
     public record Index(String name, boolean unique, List<String> columns) {
     }
 
     public record ForeignKey(String name, List<String> columns, String referencedObject, List<String> referencedColumns) {
+    }
+
+    /** 이 테이블을 참조하는 외래 키 — object의 columns가 이 테이블의 referencedColumns를 가리킨다 */
+    public record Reference(String name, String object, List<String> columns, List<String> referencedColumns) {
     }
 
     /** 행 편집을 할 수 있는지 — 기본 키가 있는 테이블만(Section 3.1) */
