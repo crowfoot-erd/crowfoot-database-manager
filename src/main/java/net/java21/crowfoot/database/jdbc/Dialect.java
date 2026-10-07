@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * DBMS별 차이 — 접속 URL·세션 설정·식별자 인용·카탈로그 조회 (09-database-manager/00-data-browser.md Section 2.4·3.1).
@@ -54,6 +55,15 @@ public interface Dialect {
 
     /** DatabaseMetaData 호출에 넘길 schema 인자 — MySQL은 null, PostgreSQL은 스키마 이름 */
     String metadataSchema(String schema);
+
+    /**
+     * 생성 컬럼 이름 — null이면 JDBC의 IS_GENERATEDCOLUMN을 그대로 믿는다.
+     *
+     * <p>드라이버의 IS_GENERATEDCOLUMN이 틀리는 DBMS만 카탈로그에서 직접 읽는다(MySQL — 신고 43).
+     */
+    default Set<String> generatedColumns(Connection connection, String schema, String table) throws SQLException {
+        return null;
+    }
 
     /**
      * 카탈로그의 객체 한 건.

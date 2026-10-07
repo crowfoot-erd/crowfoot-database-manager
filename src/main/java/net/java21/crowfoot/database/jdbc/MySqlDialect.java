@@ -9,8 +9,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 
 /**
  * MySQL — 대상은 커넥션의 database 하나다(00-data-browser.md Section 1.3).
@@ -97,6 +99,31 @@ public class MySqlDialect implements Dialect {
             }
         }
         return objects;
+    }
+
+    /**
+     * MySQL Connector/J는 EXTRA에 GENERATED가 들어간 컬럼을 모두 생성 컬럼으로 보고한다 — MySQL 8의
+     * {@code DEFAULT CURRENT_TIMESTAMP} 컬럼(EXTRA {@code DEFAULT_GENERATED})까지 걸린다(신고 43).
+     * 생성식(GENERATION_EXPRESSION)이 있는 컬럼만 생성 컬럼이다.
+     */
+    @Override
+    public Set<String> generatedColumns(Connection connection, String schema, String table) throws SQLException {
+        String sql = """
+                SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+                  AND GENERATION_EXPRESSION IS NOT NULL AND GENERATION_EXPRESSION <> ''
+                """;
+        Set<String> names = new HashSet<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schema);
+            ps.setString(2, table);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    names.add(rs.getString(1));
+                }
+            }
+        }
+        return names;
     }
 
     @Override

@@ -13,6 +13,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -37,6 +38,7 @@ public class CatalogReader {
         String escapedName = escapePattern(metaData, object.name());
 
         List<String> primaryKey = readPrimaryKey(metaData, catalog, schemaPattern, object.name());
+        Set<String> generated = dialect.generatedColumns(connection, schema, object.name());
         List<TableStructure.Column> columns = new ArrayList<>();
         try (ResultSet rs = metaData.getColumns(catalog, escapePattern(metaData, schemaPattern), escapedName, null)) {
             while (rs.next()) {
@@ -58,7 +60,7 @@ public class CatalogReader {
                         "YES".equalsIgnoreCase(rs.getString("IS_AUTOINCREMENT")),
                         remarks == null || remarks.isBlank() ? null : remarks,
                         jdbcType,
-                        isGenerated(rs)));
+                        generated == null ? isGenerated(rs) : generated.contains(name)));
             }
         }
         return new TableStructure(object.name(), object.view(), object.comment(), List.copyOf(columns), primaryKey,

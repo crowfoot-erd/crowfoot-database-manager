@@ -272,6 +272,16 @@ abstract class EditContractTest {
     }
 
     @Test
+    @DisplayName("기본값이 CURRENT_TIMESTAMP인 일반 컬럼은 생성 컬럼이 아니다 — 값을 지정해 넣는다(신고 43)")
+    void currentTimestampDefaultIsNotGenerated() throws Exception {
+        sample(false, table("priced", map("id", 2, "qty", 1, "price", 1, "stamped_at", "2026-09-01 10:00:00")));
+        assertThat(row("SELECT stamped_at FROM priced WHERE id = 2").get(0)).startsWith("2026-09-01 10:00:00");
+
+        apply("priced", update(map("id", "2"), map("stamped_at", "2026-09-02 11:00:00"), null));
+        assertThat(row("SELECT stamped_at FROM priced WHERE id = 2").get(0)).startsWith("2026-09-02 11:00:00");
+    }
+
+    @Test
     @DisplayName("요청 검증 — 키 누락·없는 컬럼·이진 컬럼·객체 표기·빈 수정")
     void validatesChanges() throws Exception {
         assertChangeFailed(() -> apply("notes", update(null, map("title", "x"), null)), ErrorCode.INVALID_REQUEST, 0);
