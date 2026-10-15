@@ -68,7 +68,7 @@ public class CheckService {
     private CheckResponse execute(ConnectionAccess access, List<CheckRequest.Check> checks, boolean mysql) {
         long start = System.nanoTime();
         List<CheckResponse.Result> results = new ArrayList<>();
-        Connection connection = targetDatabase.openReadOnly(access); // NOPMD CloseResource - finally에서 되돌린 뒤 closeQuietly로 닫는다(닫기 실패는 무시)
+        Connection connection = targetDatabase.openReadOnly(access);
         try {
             for (CheckRequest.Check check : checks) {
                 results.add(one(connection, check, mysql));

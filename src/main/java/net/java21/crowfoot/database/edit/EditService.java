@@ -110,7 +110,7 @@ public class EditService {
 
     private SampleDataResponse insertSampleData(ConnectionAccess access, List<SampleDataRequest.Table> tables, boolean dryRun) {
         long start = System.nanoTime();
-        Connection connection = targetDatabase.openWritable(access); // NOPMD CloseResource - finally의 closeQuietly로 닫는다(닫기 실패는 결과에 영향을 주지 않게 무시)
+        Connection connection = targetDatabase.openWritable(access);
         try {
             connection.setAutoCommit(false);
             Dialect dialect = targetDatabase.dialectOf(access);
@@ -264,7 +264,7 @@ public class EditService {
 
     private ChangesResponse applyInTransaction(ConnectionAccess access, String objectName, List<Change> changes) {
         long start = System.nanoTime();
-        Connection connection = targetDatabase.openWritable(access); // NOPMD CloseResource - finally의 closeQuietly로 닫는다(닫기 실패는 결과에 영향을 주지 않게 무시)
+        Connection connection = targetDatabase.openWritable(access);
         try {
             connection.setAutoCommit(false);
             Dialect dialect = targetDatabase.dialectOf(access);
