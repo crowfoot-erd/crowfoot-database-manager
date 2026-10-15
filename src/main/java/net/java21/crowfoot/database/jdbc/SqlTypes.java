@@ -33,16 +33,16 @@ public final class SqlTypes {
     }
 
     private static boolean isUnboundedText(String name) {
-        return name.contains("TEXT") || name.equals("JSON") || name.equals("JSONB") || name.equals("UUID");
+        return name.contains("TEXT") || "JSON".equals(name) || "JSONB".equals(name) || "UUID".equals(name);
     }
 
     /** 타입 분류 — 에디터의 데이터 타입 분류와 같은 값에 binary·other를 더한 것 */
     public static String category(String rawTypeName, int jdbcType) {
         String lower = rawTypeName == null ? "" : rawTypeName.toLowerCase(Locale.ROOT);
-        if (lower.equals("json") || lower.equals("jsonb")) {
+        if ("json".equals(lower) || "jsonb".equals(lower)) {
             return "json";
         }
-        if (lower.equals("uuid")) {
+        if ("uuid".equals(lower)) {
             return "uuid";
         }
         return switch (jdbcType) {

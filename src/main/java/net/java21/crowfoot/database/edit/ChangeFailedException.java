@@ -24,7 +24,12 @@ public class ChangeFailedException extends BusinessException {
     }
 
     public ChangeFailedException(ErrorCode errorCode, int index, String detail, String field) {
-        super(errorCode);
+        this(errorCode, index, detail, field, null);
+    }
+
+    /** 데이터베이스 예외에서 온 실패 — 원인을 남긴다(응답에는 detail만 실린다) */
+    public ChangeFailedException(ErrorCode errorCode, int index, String detail, String field, Throwable cause) {
+        super(errorCode, cause);
         this.index = index;
         this.detail = detail;
         this.field = field;

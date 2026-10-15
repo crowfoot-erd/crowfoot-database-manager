@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -100,13 +101,14 @@ final class Keyset {
         if (after != null && before != null) {
             throw invalid("after, before");
         }
-        Boolean descending = keyOrder(sort, structure);
-        if (descending == null) {
+        Optional<Boolean> order = keyOrder(sort, structure);
+        if (order.isEmpty()) {
             if (requested) {
                 throw invalid(after != null ? "after" : "before");
             }
             return UNUSABLE;
         }
+        boolean descending = order.get();
         List<String> keyColumns = structure.primaryKey();
         String reversed = " ORDER BY " + keyColumns.stream()
                 .map(c -> dialect.quote(c) + (descending ? " ASC" : " DESC"))
@@ -160,22 +162,22 @@ final class Keyset {
     }
 
     /**
-     * 정렬이 기본 키 순서인지 — 내림차순이면 true, 오름차순이면 false, 기본 키 순서가 아니면 null.
-     * 기본 키 타입이 문자열 왕복에 맞지 않아도 null이다.
+     * 정렬이 기본 키 순서인지 — 내림차순이면 true, 오름차순이면 false, 기본 키 순서가 아니면 비어 있다.
+     * 기본 키 타입이 문자열 왕복에 맞지 않아도 비어 있다.
      */
-    private static Boolean keyOrder(List<RowsRequest.Sort> sort, TableStructure structure) {
+    private static Optional<Boolean> keyOrder(List<RowsRequest.Sort> sort, TableStructure structure) {
         List<String> primaryKey = structure.primaryKey();
         if (primaryKey.isEmpty() || primaryKey.stream().anyMatch(c -> structure.column(c) == null
                 || !KEY_CATEGORIES.contains(structure.column(c).category()))) {
-            return null;
+            return Optional.empty();
         }
         if (sort == null || sort.isEmpty()) {
-            return false;
+            return Optional.of(false);
         }
         if (sort.size() == 1 && primaryKey.size() == 1 && primaryKey.get(0).equals(sort.get(0).column())) {
-            return sort.get(0).direction() == RowsRequest.Direction.DESC;
+            return Optional.of(sort.get(0).direction() == RowsRequest.Direction.DESC);
         }
-        return null;
+        return Optional.empty();
     }
 
     private static BusinessException invalid(String field) {

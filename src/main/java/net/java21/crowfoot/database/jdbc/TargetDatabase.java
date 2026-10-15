@@ -14,6 +14,7 @@ import java.sql.SQLTimeoutException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.function.Function;
@@ -39,7 +40,7 @@ public class TargetDatabase {
 
     /** 커넥션의 DBMS에 맞는 방언 — 지원하지 않는 DBMS면 접속할 수 없는 것으로 본다 */
     public Dialect dialectOf(ConnectionAccess access) {
-        Dialect dialect = dialects.get(access.dbmsType() == null ? "" : access.dbmsType().trim().toLowerCase());
+        Dialect dialect = dialects.get(access.dbmsType() == null ? "" : access.dbmsType().trim().toLowerCase(Locale.ROOT));
         if (dialect == null) {
             throw BusinessException.of(ErrorCode.CONNECTION_UNREACHABLE, "jdbc.unsupported", access.dbmsType());
         }
@@ -112,7 +113,7 @@ public class TargetDatabase {
         if (state != null && state.startsWith("28")) {
             return "jdbc.auth";
         }
-        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
         if (message.contains("timeout") || message.contains("timed out")) {
             return "jdbc.timeout";
         }

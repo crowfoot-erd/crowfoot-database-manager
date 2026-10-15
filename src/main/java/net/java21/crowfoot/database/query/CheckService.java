@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import net.java21.crowfoot.database.client.CoreClient;
 import net.java21.crowfoot.database.client.dto.ConnectionAccess;
@@ -67,7 +68,7 @@ public class CheckService {
     private CheckResponse execute(ConnectionAccess access, List<CheckRequest.Check> checks, boolean mysql) {
         long start = System.nanoTime();
         List<CheckResponse.Result> results = new ArrayList<>();
-        Connection connection = targetDatabase.openReadOnly(access);
+        Connection connection = targetDatabase.openReadOnly(access); // NOPMD CloseResource - finally에서 되돌린 뒤 closeQuietly로 닫는다(닫기 실패는 무시)
         try {
             for (CheckRequest.Check check : checks) {
                 results.add(one(connection, check, mysql));
@@ -81,6 +82,8 @@ public class CheckService {
         return new CheckResponse(results, passed, failed, results.size() - passed - failed, elapsedMs(start));
     }
 
+    @SuppressFBWarnings(value = "SQL_INJECTION_JDBC", justification = "요구사항 확인 SQL(사용자가 쓴 SELECT)을 실행하는 것이 기능이다. "
+            + "core 접근 확인·길이/건수 한도·한 문장 읽기 분류만 실행·읽기 전용 트랜잭션(끝에 되돌림)·실행 제한 시간·첫 행만 읽음")
     private CheckResponse.Result one(Connection connection, CheckRequest.Check check, boolean mysql) {
         long start = System.nanoTime();
         String expect = check.expect() == null || check.expect().isBlank() ? "0" : check.expect().strip();
@@ -97,9 +100,11 @@ public class CheckService {
             if (!statement.execute(check.sql())) {
                 return error(check, expect, "NO_RESULT", null, start);
             }
-            String value;
+            String value = null;                            // 행이 없으면 null
             try (ResultSet rs = statement.getResultSet()) {
-                value = rs.next() ? rs.getString(1) : null;
+                if (rs.next()) {
+                    value = rs.getString(1);
+                }
             }
             String status = matches(value, expect) ? "PASSED" : "FAILED";
             return new CheckResponse.Result(check.key(), status, value, expect, null, null, elapsedMs(start));

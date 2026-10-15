@@ -100,10 +100,8 @@ public final class SqlScanner {
             if (!keywordDone) {
                 if (Character.isLetter(c) || (keyword.length() > 0 && (Character.isLetterOrDigit(c) || c == '_'))) {
                     keyword.append(c);
-                } else if (c == '(' && keyword.length() == 0) {
-                    // 계속 찾는다
-                } else {
-                    keywordDone = true;
+                } else if (c != '(' || keyword.length() > 0) {
+                    keywordDone = true;                         // 키워드 앞의 여는 괄호면 계속 찾는다
                 }
             }
             i++;

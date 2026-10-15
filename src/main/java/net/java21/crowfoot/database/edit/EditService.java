@@ -1,5 +1,6 @@
 package net.java21.crowfoot.database.edit;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import net.java21.crowfoot.database.client.CoreClient;
 import net.java21.crowfoot.database.client.dto.ConnectionAccess;
@@ -109,7 +110,7 @@ public class EditService {
 
     private SampleDataResponse insertSampleData(ConnectionAccess access, List<SampleDataRequest.Table> tables, boolean dryRun) {
         long start = System.nanoTime();
-        Connection connection = targetDatabase.openWritable(access);
+        Connection connection = targetDatabase.openWritable(access); // NOPMD CloseResource - finally의 closeQuietly로 닫는다(닫기 실패는 결과에 영향을 주지 않게 무시)
         try {
             connection.setAutoCommit(false);
             Dialect dialect = targetDatabase.dialectOf(access);
@@ -129,11 +130,11 @@ public class EditService {
                         insertSampleRow(connection, dialect, qualified, structure, table.rows().get(rowIndex), field);
                     } catch (SQLException e) {
                         if (SqlErrors.isTimeout(e)) {
-                            throw new BusinessException(ErrorCode.QUERY_TIMEOUT);
+                            throw new BusinessException(ErrorCode.QUERY_TIMEOUT, e);
                         }
                         throw new ChangeFailedException(
                                 SqlErrors.isInvalidValue(e) ? ErrorCode.INVALID_VALUE : ErrorCode.ROW_CHANGE_FAILED,
-                                rowIndex, SqlErrors.messageOf(e), field);
+                                rowIndex, SqlErrors.messageOf(e), field, e);
                     }
                 }
                 counts.add(new SampleDataResponse.TableCount(structure.name(), table.rows().size()));
@@ -157,6 +158,8 @@ public class EditService {
     }
 
     /** 샘플 행 하나 — 값은 문자열·숫자·불리언·null을 받는다(숫자와 불리언은 문자열 표기로 바꿔 타입에 맞게 넣는다) */
+    @SuppressFBWarnings(value = {"SQL_INJECTION_JDBC", "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING"},
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
     private void insertSampleRow(Connection connection, Dialect dialect, String table, TableStructure structure,
                                  Map<String, Object> row, String field) throws SQLException {
         Map<String, String> values = new LinkedHashMap<>();
@@ -212,52 +215,56 @@ public class EditService {
     public CellResponse cell(long userId, String workspaceId, String connectionId, String objectName,
                              CellRequest request) {
         ConnectionAccess access = coreClient.requireAccess(userId, workspaceId, connectionId);
-        return limiter.run(userId, () -> {
-            long start = System.nanoTime();
-            Connection connection = targetDatabase.openReadOnly(access);
-            try {
-                Dialect dialect = targetDatabase.dialectOf(access);
-                String schema = dialect.resolveSchema(connection, access);
-                TableStructure structure = requireEditable(catalogReader.structure(connection, dialect, schema, objectName));
-                TableStructure.Column column = structure.column(request.column());
-                if (column == null || "binary".equals(column.category())) {
-                    throw BusinessException.of(ErrorCode.INVALID_REQUEST, "detail.filter.unknown-column", request.column());
-                }
-                Map<String, String> key = keyOf(structure, request.key(), -1);
-                String quoted = dialect.quote(column.name());
-                String text = dialect.castToText(quoted);
-                // 길이를 먼저 본다 — 한도를 넘는 값을 메모리에 올리지 않는다
-                String sql = "SELECT CHAR_LENGTH(" + text + "), CASE WHEN CHAR_LENGTH(" + text + ") <= ? THEN " + text
-                        + " END FROM " + dialect.qualified(schema, structure.name()) + whereKey(structure, dialect);
-                try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                    targetDatabase.applyStatementTimeout(statement);
-                    statement.setInt(1, limits.valueLengthMax());
-                    bindKey(statement, 2, structure, key);
-                    try (ResultSet rs = statement.executeQuery()) {
-                        if (!rs.next()) {
-                            throw new BusinessException(ErrorCode.ROW_CONFLICT);
-                        }
-                        long length = rs.getLong(1);
-                        if (rs.wasNull()) {
-                            return new CellResponse(column.name(), null, 0, elapsedMs(start));
-                        }
-                        if (length > limits.valueLengthMax()) {
-                            throw new ChangeFailedException(ErrorCode.VALUE_TOO_LARGE, 0, Long.toString(length));
-                        }
-                        return new CellResponse(column.name(), rs.getString(2), length, elapsedMs(start));
-                    }
-                }
-            } catch (SQLException e) {
-                throw SqlErrors.translateQuery(e);
-            } finally {
-                TargetDatabase.closeQuietly(connection);
+        return limiter.run(userId, () -> readCell(access, objectName, request));
+    }
+
+    @SuppressFBWarnings(value = "SQL_INJECTION_JDBC",
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
+    private CellResponse readCell(ConnectionAccess access, String objectName, CellRequest request) {
+        long start = System.nanoTime();
+        Connection connection = targetDatabase.openReadOnly(access);
+        try {
+            Dialect dialect = targetDatabase.dialectOf(access);
+            String schema = dialect.resolveSchema(connection, access);
+            TableStructure structure = requireEditable(catalogReader.structure(connection, dialect, schema, objectName));
+            TableStructure.Column column = structure.column(request.column());
+            if (column == null || "binary".equals(column.category())) {
+                throw BusinessException.of(ErrorCode.INVALID_REQUEST, "detail.filter.unknown-column", request.column());
             }
-        });
+            Map<String, String> key = keyOf(structure, request.key(), -1);
+            String quoted = dialect.quote(column.name());
+            String text = dialect.castToText(quoted);
+            // 길이를 먼저 본다 — 한도를 넘는 값을 메모리에 올리지 않는다
+            String sql = "SELECT CHAR_LENGTH(" + text + "), CASE WHEN CHAR_LENGTH(" + text + ") <= ? THEN " + text
+                    + " END FROM " + dialect.qualified(schema, structure.name()) + whereKey(structure, dialect);
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                targetDatabase.applyStatementTimeout(statement);
+                statement.setInt(1, limits.valueLengthMax());
+                bindKey(statement, 2, structure, key);
+                try (ResultSet rs = statement.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new BusinessException(ErrorCode.ROW_CONFLICT);
+                    }
+                    long length = rs.getLong(1);
+                    if (rs.wasNull()) {
+                        return new CellResponse(column.name(), null, 0, elapsedMs(start));
+                    }
+                    if (length > limits.valueLengthMax()) {
+                        throw new ChangeFailedException(ErrorCode.VALUE_TOO_LARGE, 0, Long.toString(length));
+                    }
+                    return new CellResponse(column.name(), rs.getString(2), length, elapsedMs(start));
+                }
+            }
+        } catch (SQLException e) {
+            throw SqlErrors.translateQuery(e);
+        } finally {
+            TargetDatabase.closeQuietly(connection);
+        }
     }
 
     private ChangesResponse applyInTransaction(ConnectionAccess access, String objectName, List<Change> changes) {
         long start = System.nanoTime();
-        Connection connection = targetDatabase.openWritable(access);
+        Connection connection = targetDatabase.openWritable(access); // NOPMD CloseResource - finally의 closeQuietly로 닫는다(닫기 실패는 결과에 영향을 주지 않게 무시)
         try {
             connection.setAutoCommit(false);
             Dialect dialect = targetDatabase.dialectOf(access);
@@ -289,12 +296,12 @@ public class EditService {
                     }
                 } catch (SQLException e) {
                     if (SqlErrors.isTimeout(e)) {
-                        throw new BusinessException(ErrorCode.QUERY_TIMEOUT);
+                        throw new BusinessException(ErrorCode.QUERY_TIMEOUT, e);
                     }
                     // 값 변환 실패(22 계열)와 그 밖의 거부(제약 위반·권한 없음 등)를 나눠 알린다
                     throw new ChangeFailedException(
                             SqlErrors.isInvalidValue(e) ? ErrorCode.INVALID_VALUE : ErrorCode.ROW_CHANGE_FAILED,
-                            index, SqlErrors.messageOf(e));
+                            index, SqlErrors.messageOf(e), null, e);
                 }
             }
             connection.commit();
@@ -310,6 +317,8 @@ public class EditService {
         }
     }
 
+    @SuppressFBWarnings(value = {"SQL_INJECTION_JDBC", "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING"},
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
     private Map<String, String> insert(Connection connection, Dialect dialect, String table, TableStructure structure,
                                        Change change, int index) throws SQLException {
         Map<String, String> values = valuesOf(structure, change.values(), index);
@@ -343,6 +352,8 @@ public class EditService {
         }
     }
 
+    @SuppressFBWarnings(value = {"SQL_INJECTION_JDBC", "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING"},
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
     private void update(Connection connection, Dialect dialect, String table, TableStructure structure,
                         Change change, int index) throws SQLException {
         Map<String, String> key = keyOf(structure, change.key(), index);
@@ -372,6 +383,8 @@ public class EditService {
         }
     }
 
+    @SuppressFBWarnings(value = "SQL_INJECTION_JDBC",
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
     private void delete(Connection connection, Dialect dialect, String table, TableStructure structure,
                         Change change, int index) throws SQLException {
         Map<String, String> key = keyOf(structure, change.key(), index);
@@ -444,10 +457,11 @@ public class EditService {
             if ("binary".equals(column.category()) || !(value == null || value instanceof String)) {
                 throw new ChangeFailedException(ErrorCode.INVALID_VALUE, Math.max(index, 0), column.name());
             }
-            if (value instanceof String text && text.length() > limits.valueLengthMax()) {
+            String text = (String) value;                       // 위에서 null 또는 문자열만 남겼다
+            if (text != null && text.length() > limits.valueLengthMax()) {
                 throw new ChangeFailedException(ErrorCode.VALUE_TOO_LARGE, Math.max(index, 0), column.name());
             }
-            result.put(column.name(), (String) value);
+            result.put(column.name(), text);
         }
         return result;
     }

@@ -28,8 +28,8 @@ public final class ValueBinder {
         }
         if ("boolean".equals(category)) {
             String lower = value.trim().toLowerCase(Locale.ROOT);
-            if (lower.equals("true") || lower.equals("false")) {
-                statement.setBoolean(index, lower.equals("true"));
+            if ("true".equals(lower) || "false".equals(lower)) {
+                statement.setBoolean(index, "true".equals(lower));
                 return;
             }
         }

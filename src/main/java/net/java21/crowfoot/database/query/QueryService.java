@@ -1,5 +1,6 @@
 package net.java21.crowfoot.database.query;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import net.java21.crowfoot.database.client.CoreClient;
 import net.java21.crowfoot.database.client.dto.ConnectionAccess;
@@ -83,6 +84,9 @@ public class QueryService {
         return response;
     }
 
+    @SuppressFBWarnings(value = "SQL_INJECTION_JDBC", justification = "SQL 콘솔 — 사용자가 쓴 SQL을 실행하는 것이 기능이다. "
+            + "core 접근 확인(커넥션 권한 판정)·길이 한도·한 문장만 허용·문장 분류(지원하지 않는 문장 거부)·쓰기/구조 문장은 사용자 확인 필수·"
+            + "읽기 문장은 읽기 전용 트랜잭션(DB가 쓰기를 거부)·실행 제한 시간·행 수 한도·사용자당 동시 실행 한도·감사 기록")
     private QueryResponse run(ConnectionAccess access, StatementKind kind, String sql, int maxRows) {
         long start = System.nanoTime();
         Connection connection = kind == StatementKind.READ
@@ -108,7 +112,7 @@ public class QueryService {
                     elapsedMs(start));
         } catch (SQLException e) {
             if (SqlErrors.isTimeout(e)) {
-                throw new BusinessException(ErrorCode.QUERY_TIMEOUT);
+                throw new BusinessException(ErrorCode.QUERY_TIMEOUT, e);
             }
             // 데이터베이스가 문장을 거부했다 — 문구를 그대로 전달한다(사용자가 자기 SQL을 고치는 데 필요하다)
             return QueryResponse.failed(kind, SqlErrors.messageOf(e), e.getSQLState(), elapsedMs(start));

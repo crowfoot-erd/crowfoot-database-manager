@@ -23,6 +23,11 @@ public class BusinessException extends RuntimeException {
         this(errorCode, null, null, false, errorCode.getDefaultMessage(), null);
     }
 
+    /** 기본 문구 + 원인 예외 — 원인은 로그·스택 추적에만 남고 응답에는 실리지 않는다 */
+    public BusinessException(ErrorCode errorCode, Throwable cause) {
+        this(errorCode, null, null, false, errorCode.getDefaultMessage(), cause);
+    }
+
     public BusinessException(ErrorCode errorCode, String message) {
         this(errorCode, null, null, true, message, null);
     }

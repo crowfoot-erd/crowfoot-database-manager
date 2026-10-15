@@ -1,5 +1,6 @@
 package net.java21.crowfoot.database.browse;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.java21.crowfoot.database.browse.dto.CountRequest;
@@ -85,58 +86,70 @@ public class BrowseService {
             throw BusinessException.of(ErrorCode.INVALID_REQUEST, "detail.request.limit", "size");
         }
         ConnectionAccess access = coreClient.requireAccess(userId, workspaceId, connectionId);
-        return limiter.run(userId, () -> withReadOnly(access, (connection, dialect, schema) -> {
-            long start = System.nanoTime();
-            TableStructure structure = catalogReader.structure(connection, dialect, schema, objectName);
-            RowFilters filters = RowFilters.of(request == null ? null : request.filters(), structure, dialect,
-                    limits.filtersMax());
-            List<RowsRequest.Sort> sort = request == null ? null : request.sort();
-            String orderBy = orderBy(sort, structure, dialect);
-            Keyset keyset = Keyset.of(sort, structure, dialect,
-                    request == null ? null : request.after(), request == null ? null : request.before());
-            String where = filters.sql();
-            if (keyset.condition() != null) {
-                where = where.isEmpty() ? " WHERE " + keyset.condition() : where + " AND (" + keyset.condition() + ")";
+        return limiter.run(userId, () -> withReadOnly(access, (connection, dialect, schema) ->
+                readRows(connection, dialect, schema, objectName, request, page, size)));
+    }
+
+    @SuppressFBWarnings(value = "SQL_INJECTION_JDBC",
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
+    private RowsResponse readRows(Connection connection, Dialect dialect, String schema, String objectName,
+                                  RowsRequest request, int page, int size) throws SQLException {
+        long start = System.nanoTime();
+        TableStructure structure = catalogReader.structure(connection, dialect, schema, objectName);
+        RowFilters filters = RowFilters.of(request == null ? null : request.filters(), structure, dialect,
+                limits.filtersMax());
+        List<RowsRequest.Sort> sort = request == null ? null : request.sort();
+        String orderBy = orderBy(sort, structure, dialect);
+        Keyset keyset = Keyset.of(sort, structure, dialect,
+                request == null ? null : request.after(), request == null ? null : request.before());
+        String where = filters.sql();
+        if (keyset.condition() != null) {
+            where = where.isEmpty() ? " WHERE " + keyset.condition() : where + " AND (" + keyset.condition() + ")";
+        }
+        String sql = "SELECT " + selectList(structure, dialect)
+                + " FROM " + dialect.qualified(schema, structure.name())
+                + where
+                + (keyset.backward() ? keyset.reversedOrderBy() : orderBy)
+                + (keyset.condition() != null ? " LIMIT ?" : " LIMIT ? OFFSET ?");
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            targetDatabase.applyStatementTimeout(statement);
+            int index = filters.bind(statement, 1);
+            index = keyset.bind(statement, index);
+            statement.setInt(index++, size + 1);            // 한 행 더 읽어 다음 페이지 유무만 판단한다
+            if (keyset.condition() == null) {
+                statement.setLong(index, (long) (page - 1) * size);
             }
-            String sql = "SELECT " + selectList(structure, dialect)
-                    + " FROM " + dialect.qualified(schema, structure.name())
-                    + where
-                    + (keyset.backward() ? keyset.reversedOrderBy() : orderBy)
-                    + (keyset.condition() != null ? " LIMIT ?" : " LIMIT ? OFFSET ?");
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                targetDatabase.applyStatementTimeout(statement);
-                int index = filters.bind(statement, 1);
-                index = keyset.bind(statement, index);
-                statement.setInt(index++, size + 1);            // 한 행 더 읽어 다음 페이지 유무만 판단한다
-                if (keyset.condition() == null) {
-                    statement.setLong(index, (long) (page - 1) * size);
-                }
-                try (ResultSet rs = statement.executeQuery()) {
-                    return readPage(rs, structure, keyset, page, size, start);
-                }
+            try (ResultSet rs = statement.executeQuery()) {
+                return readPage(rs, structure, keyset, page, size, start);
             }
-        }));
+        }
     }
 
     /** 정확한 행 수(3.4) */
     public CountResponse count(long userId, String workspaceId, String connectionId, String objectName,
                                CountRequest request) {
         ConnectionAccess access = coreClient.requireAccess(userId, workspaceId, connectionId);
-        return limiter.run(userId, () -> withReadOnly(access, (connection, dialect, schema) -> {
-            long start = System.nanoTime();
-            TableStructure structure = catalogReader.structure(connection, dialect, schema, objectName);
-            RowFilters filters = RowFilters.of(request == null ? null : request.filters(), structure, dialect,
-                    limits.filtersMax());
-            String sql = "SELECT COUNT(*) FROM " + dialect.qualified(schema, structure.name()) + filters.sql();
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                targetDatabase.applyStatementTimeout(statement);
-                filters.bind(statement, 1);
-                try (ResultSet rs = statement.executeQuery()) {
-                    rs.next();
-                    return new CountResponse(Long.toString(rs.getLong(1)), elapsedMs(start));
-                }
+        return limiter.run(userId, () -> withReadOnly(access, (connection, dialect, schema) ->
+                readCount(connection, dialect, schema, objectName, request)));
+    }
+
+    @SuppressFBWarnings(value = "SQL_INJECTION_JDBC",
+            justification = "식별자는 카탈로그와 정확히 일치한 이름만 dialect.quote(인용 문자 이중화 이스케이프)로 붙이고, 값은 전부 바인드 파라미터다")
+    private CountResponse readCount(Connection connection, Dialect dialect, String schema, String objectName,
+                                    CountRequest request) throws SQLException {
+        long start = System.nanoTime();
+        TableStructure structure = catalogReader.structure(connection, dialect, schema, objectName);
+        RowFilters filters = RowFilters.of(request == null ? null : request.filters(), structure, dialect,
+                limits.filtersMax());
+        String sql = "SELECT COUNT(*) FROM " + dialect.qualified(schema, structure.name()) + filters.sql();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            targetDatabase.applyStatementTimeout(statement);
+            filters.bind(statement, 1);
+            try (ResultSet rs = statement.executeQuery()) {
+                long count = rs.next() ? rs.getLong(1) : 0;   // COUNT(*)는 언제나 한 행이다
+                return new CountResponse(Long.toString(count), elapsedMs(start));
             }
-        }));
+        }
     }
 
     private RowsResponse readPage(ResultSet rs, TableStructure structure, Keyset keyset, int page, int size,

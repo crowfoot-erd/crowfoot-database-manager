@@ -57,7 +57,9 @@ public class PostgresDialect implements Dialect {
         try (PreparedStatement ps = connection.prepareStatement("SELECT set_config('search_path', ?, false)")) {
             ps.setString(1, schema.trim());
             try (ResultSet rs = ps.executeQuery()) {
-                rs.next();
+                if (!rs.next()) {
+                    throw new SQLException("search_path not set: " + schema, "08004");
+                }
             }
         }
     }
@@ -69,8 +71,7 @@ public class PostgresDialect implements Dialect {
         }
         try (Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery("SELECT current_schema()")) {
-            rs.next();
-            String schema = rs.getString(1);
+            String schema = rs.next() ? rs.getString(1) : null;
             return schema == null ? "public" : schema;
         }
     }

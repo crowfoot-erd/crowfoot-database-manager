@@ -6,6 +6,7 @@ import net.java21.crowfoot.database.config.LimitsProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -16,7 +17,7 @@ import java.util.function.Supplier;
 @Component
 public class UserConcurrencyLimiter {
 
-    private final ConcurrentHashMap<Long, AtomicInteger> running = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, AtomicInteger> running = new ConcurrentHashMap<>();
     private final int limit;
 
     public UserConcurrencyLimiter(LimitsProperties limits) {

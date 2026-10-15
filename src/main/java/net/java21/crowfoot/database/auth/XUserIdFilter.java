@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import lombok.RequiredArgsConstructor;
 import net.java21.crowfoot.database.common.ErrorResponse;
 import net.java21.crowfoot.database.common.error.ErrorCode;
@@ -13,6 +14,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * X-USER-ID 검증 필터 (09-database-manager/00-data-browser.md Section 1.5 — core XUserIdFilter와 같은 방식).
@@ -85,10 +87,12 @@ public class XUserIdFilter extends OncePerRequestFilter {
         writeError(response, ErrorCode.AUTH_TOKEN_INVALID);
     }
 
+    @SuppressFBWarnings(value = "XSS_SERVLET",
+            justification = "본문은 ErrorCode 상수의 코드·기본 문구를 Jackson으로 직렬화한 JSON이다 — 요청 값이 섞이지 않는다")
     private void writeError(HttpServletResponse response, ErrorCode code) throws IOException {
         response.setStatus(code.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
+        response.setCharacterEncoding(StandardCharsets.UTF_8);
         response.getWriter().write(
                 objectMapper.writeValueAsString(ErrorResponse.of(code.getCode(), code.getDefaultMessage())));
     }

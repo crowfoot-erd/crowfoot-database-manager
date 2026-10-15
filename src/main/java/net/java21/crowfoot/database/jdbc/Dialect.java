@@ -61,6 +61,8 @@ public interface Dialect {
      *
      * <p>드라이버의 IS_GENERATEDCOLUMN이 틀리는 DBMS만 카탈로그에서 직접 읽는다(MySQL — 신고 43).
      */
+    // null(드라이버를 믿는다)과 빈 집합(생성 컬럼 없음 — 드라이버 값을 덮는다)은 뜻이 다르다(CatalogReader)
+    @SuppressWarnings("PMD.ReturnEmptyCollectionRatherThanNull")
     default Set<String> generatedColumns(Connection connection, String schema, String table) throws SQLException {
         return null;
     }
